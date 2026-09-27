@@ -1,7 +1,7 @@
 COMPOSE      = docker compose -f devops/compose.yaml
 COMPOSE_PROD = docker compose -f devops/compose.prod.yaml
 
-.PHONY: dev down prod prod-down logs psql test client-install client-build
+.PHONY: dev down prod prod-down logs psql test test-integration client-install client-build
 
 dev: ## Postgres + API (air hot reload) + Vite dev server
 	$(COMPOSE) up --build
@@ -24,6 +24,9 @@ psql:
 test:
 	cd server && go vet ./... && go test -race ./...
 	cd client && npm run typecheck
+
+test-integration: ## Live DNS tests (needs network)
+	cd server && go test -tags integration -count=1 -v ./internal/asm
 
 client-install:
 	cd client && npm install

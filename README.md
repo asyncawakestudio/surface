@@ -98,6 +98,7 @@ Migrations in `server/internal/store/migrations` are embedded and applied at sta
 | `MAX_CONCURRENT_SCANS`      | `2`     | Scans that run at once; the rest queue    |
 | `SCAN_TIMEOUT_MINUTES`      | `30`    | Hard limit per scan                       |
 | `SUBFINDER_PROVIDER_CONFIG` | —       | Path to subfinder API keys (see below)    |
+| `DNS_RESOLVERS`             | —       | Comma-separated resolvers, e.g. `udp:1.1.1.1:53,tcp:8.8.8.8:53`. When unset, dnsx's public resolvers are used, falling back to the system resolver if they're unreachable |
 | `STATIC_DIR`                | —       | Serve the built client from this directory (set in the prod image) |
 
 Without API keys, subfinder uses only free sources. To add keys, copy `devops/config/subfinder/provider-config.example.yaml` to `provider-config.yaml` in the same folder. Compose mounts `devops/config` into the API container.

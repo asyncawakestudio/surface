@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -47,6 +48,8 @@ func run(logger *slog.Logger) error {
 
 	scanner := asm.New(asm.Options{
 		SubfinderProviderConfig: os.Getenv("SUBFINDER_PROVIDER_CONFIG"),
+		Resolvers:               envList("DNS_RESOLVERS"),
+		Logger:                  logger,
 	})
 	jobs := api.NewJobs(st, scanner, logger,
 		envInt("MAX_CONCURRENT_SCANS", 2),
@@ -104,4 +107,14 @@ func envInt(key string, def int) int {
 		return n
 	}
 	return def
+}
+
+func envList(key string) []string {
+	var out []string
+	for _, v := range strings.Split(os.Getenv(key), ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }

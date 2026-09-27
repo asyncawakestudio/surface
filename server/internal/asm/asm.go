@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"regexp"
@@ -81,7 +82,9 @@ type Options struct {
 	SubfinderProviderConfig string
 	// SubfinderMaxTime caps passive enumeration time.
 	SubfinderMaxTime time.Duration
-	// Resolvers overrides the DNS resolvers used by dnsx ("1.1.1.1:53").
+	// Resolvers overrides the DNS resolvers used by dnsx ("udp:1.1.1.1:53").
+	// When empty, dnsx's public resolvers are used, falling back to the
+	// system resolver if they are unreachable.
 	Resolvers []string
 	// DNSConcurrency is the number of hosts resolved in parallel.
 	DNSConcurrency int
@@ -91,6 +94,8 @@ type Options struct {
 	TLSPorts []int
 	// TLSTimeout is the per-connection timeout.
 	TLSTimeout time.Duration
+	// Logger receives stage diagnostics. Defaults to slog.Default().
+	Logger *slog.Logger
 }
 
 func (o Options) withDefaults() Options {
@@ -98,7 +103,7 @@ func (o Options) withDefaults() Options {
 		o.SubfinderMaxTime = 10 * time.Minute
 	}
 	if o.DNSConcurrency <= 0 {
-		o.DNSConcurrency = 50
+		o.DNSConcurrency = 100
 	}
 	if o.TLSConcurrency <= 0 {
 		o.TLSConcurrency = 25
@@ -108,6 +113,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.TLSTimeout <= 0 {
 		o.TLSTimeout = 5 * time.Second
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
 	}
 	return o
 }
@@ -147,7 +155,7 @@ func (s *Scanner) Run(ctx context.Context, domain string, progress ProgressFunc)
 	}
 
 	progress(StageDNS)
-	records, resolved, err := s.resolve(ctx, hosts)
+	records, resolved, err := s.resolve(ctx, domain, hosts)
 	if err != nil {
 		return nil, fmt.Errorf("dns resolution: %w", err)
 	}
