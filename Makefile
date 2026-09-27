@@ -25,8 +25,10 @@ test:
 	cd server && go vet ./... && go test -race ./...
 	cd client && npm run typecheck
 
-test-integration: ## Live DNS tests (needs network)
-	cd server && go test -tags integration -count=1 -v ./internal/asm
+# Live DNS tests, plus store tests when TEST_DATABASE_URL points at a
+# disposable database (tables are truncated).
+test-integration:
+	cd server && go test -tags integration -count=1 -v ./internal/asm ./internal/store
 
 client-install:
 	cd client && npm install

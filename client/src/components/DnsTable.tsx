@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import type { DnsRecord } from "../types";
-import { Chip, EmptyRow, SearchBar, Table } from "./Table";
+import { dnsKey, type DnsRecord } from "../types";
+import { Chip, EmptyRow, NewChip, SearchBar, Table } from "./Table";
 
 const typeTone = {
   A: "cyan",
@@ -12,7 +12,7 @@ const typeTone = {
   CAA: "rose",
 } as const;
 
-export default function DnsTable({ records }: { records: DnsRecord[] }) {
+export default function DnsTable({ records, added }: { records: DnsRecord[]; added?: Set<string> }) {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<string | null>(null);
 
@@ -46,7 +46,10 @@ export default function DnsTable({ records }: { records: DnsRecord[] }) {
         {rows.length === 0 && <EmptyRow cols={3} />}
         {rows.map((r, i) => (
           <tr key={`${r.host}-${r.type}-${i}`} className="hover:bg-slate-800/30">
-            <td className="px-4 py-2 font-mono whitespace-nowrap text-white">{r.host}</td>
+            <td className="px-4 py-2 font-mono whitespace-nowrap text-white">
+              {r.host}
+              <NewChip show={!!added?.has(dnsKey(r))} />
+            </td>
             <td className="px-4 py-2">
               <Chip tone={typeTone[r.type as keyof typeof typeTone] ?? "slate"}>{r.type}</Chip>
             </td>

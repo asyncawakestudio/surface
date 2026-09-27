@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
 import type { DnsRecord, Subdomain, TlsCert } from "../types";
-import { Chip, EmptyRow, SearchBar, Table } from "./Table";
+import { Chip, EmptyRow, NewChip, SearchBar, Table } from "./Table";
 
 interface Props {
   subdomains: Subdomain[];
   records: DnsRecord[];
   certs: TlsCert[];
+  /** Hosts that weren't in the previous scan. */
+  added?: Set<string>;
 }
 
-export default function SubdomainTable({ subdomains, records, certs }: Props) {
+export default function SubdomainTable({ subdomains, records, certs, added }: Props) {
   const [query, setQuery] = useState("");
   const [resolvedOnly, setResolvedOnly] = useState(false);
 
@@ -47,7 +49,10 @@ export default function SubdomainTable({ subdomains, records, certs }: Props) {
           const ips = ipsByHost.get(s.host) ?? [];
           return (
             <tr key={s.host} className="hover:bg-slate-800/30">
-              <td className="px-4 py-2 font-mono text-white">{s.host}</td>
+              <td className="px-4 py-2 font-mono text-white">
+                {s.host}
+                <NewChip show={!!added?.has(s.host)} />
+              </td>
               <td className="px-4 py-2 font-mono text-xs text-slate-400">
                 {ips.length ? ips.join(", ") : <span className="text-slate-600">unresolved</span>}
               </td>

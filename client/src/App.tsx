@@ -1,56 +1,109 @@
 import { useState } from "react";
 import { api } from "./api";
 import { usePoll } from "./hooks";
-import { isActive, type Scan, type ScanDetail } from "./types";
+import { isActive, type Domain, type Scan, type ScanDetail, type ScanDiff } from "./types";
 import ScanForm from "./components/ScanForm";
-import ScanList from "./components/ScanList";
+import DomainList from "./components/DomainList";
+import ScanHistory from "./components/ScanHistory";
 import ScanDetailView from "./components/ScanDetail";
 
 export default function App() {
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  // null follows the domain's latest scan.
+  const [pinnedScanId, setPinnedScanId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ScanDetail | null>(null);
+  const [diff, setDiff] = useState<ScanDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const anyActive = scans.some(isActive);
-  const selected = scans.find((s) => s.id === selectedId);
+  const refresh = () => setRefreshKey((k) => k + 1);
+  const onError = (e: Error) => setError(e.message);
+
+  const anyActive = domains.some((d) => isActive(d.latest));
+  const selectedScanId = pinnedScanId ?? scans[0]?.id ?? null;
+  const selectedScan = scans.find((s) => s.id === selectedScanId);
 
   usePoll(
     () =>
       api
-        .listScans()
+        .listDomains()
         .then((list) => {
-          setScans(list);
+          setDomains(list);
           setError(null);
-          setSelectedId((cur) => cur ?? list[0]?.id ?? null);
+          setSelectedDomain((cur) => cur ?? list[0]?.domain ?? null);
         })
-        .catch((e: Error) => setError(e.message)),
+        .catch(onError),
     anyActive ? 3000 : 15000,
+    [refreshKey],
+  );
+
+  usePoll(
+    () => {
+      if (!selectedDomain) return setScans([]);
+      api
+        .listScans(selectedDomain)
+        .then((list) => {
+          // Ignore responses for a domain that is no longer selected.
+          if (list[0]?.domain === selectedDomain) setScans(list);
+        })
+        .catch(onError);
+    },
+    anyActive ? 3000 : 15000,
+    [selectedDomain, refreshKey],
   );
 
   // Refetch the detail when the selection changes and whenever the selected
   // scan's status/stage moves, so results appear as soon as it completes.
   usePoll(
     () => {
-      if (selectedId === null) return setDetail(null);
-      api
-        .getScan(selectedId)
-        .then(setDetail)
-        .catch((e: Error) => setError(e.message));
+      if (selectedScanId === null) return setDetail(null);
+      api.getScan(selectedScanId).then(setDetail).catch(onError);
     },
-    selected && isActive(selected) ? 3000 : null,
-    [selectedId, selected?.status, selected?.stage],
+    selectedScan && isActive(selectedScan) ? 3000 : null,
+    [selectedScanId, selectedScan?.status, selectedScan?.stage],
   );
 
-  const handleCreated = (scan: Scan) => {
-    setScans((prev) => [scan, ...prev]);
-    setSelectedId(scan.id);
+  usePoll(
+    () => {
+      setDiff(null);
+      if (selectedScanId === null || selectedScan?.status !== "completed") return;
+      api.getDiff(selectedScanId).then(setDiff).catch(onError);
+    },
+    null,
+    [selectedScanId, selectedScan?.status],
+  );
+
+  const selectDomain = (domain: string) => {
+    if (domain === selectedDomain) return;
+    setSelectedDomain(domain);
+    setScans([]);
+    setPinnedScanId(null);
+    setDetail(null);
   };
 
-  const handleDeleted = (id: number) => {
-    setScans((prev) => prev.filter((s) => s.id !== id));
-    setSelectedId((cur) => (cur === id ? null : cur));
-    setDetail(null);
+  const handleCreated = (scan: Scan) => {
+    selectDomain(scan.domain);
+    setPinnedScanId(null);
+    refresh();
+  };
+
+  const handlePause = async (scan: Scan) => {
+    try {
+      await api.pauseScan(scan.id);
+    } catch (e) {
+      onError(e as Error);
+    }
+    refresh();
+  };
+
+  const handleScanAgain = async (domain: string) => {
+    try {
+      handleCreated(await api.createScan(domain));
+    } catch (e) {
+      onError(e as Error);
+    }
   };
 
   return (
@@ -69,20 +122,36 @@ export default function App() {
       </header>
 
       {error && (
-        <div className="border-b border-rose-900/50 bg-rose-950/40 px-6 py-2 text-sm text-rose-300">
+        <div className="flex items-center justify-between border-b border-rose-900/50 bg-rose-950/40 px-6 py-2 text-sm text-rose-300">
           {error}
+          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-200" aria-label="Dismiss">
+            ✕
+          </button>
         </div>
       )}
 
       <div className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col lg:flex-row">
         <aside className="border-slate-800 lg:w-80 lg:shrink-0 lg:border-r">
-          <ScanList scans={scans} selectedId={selectedId} onSelect={setSelectedId} />
+          <DomainList domains={domains} selected={selectedDomain} onSelect={selectDomain} />
         </aside>
-        <main className="min-w-0 flex-1 p-4 sm:p-6">
-          {detail ? (
-            <ScanDetailView scan={detail} onDeleted={handleDeleted} />
+        <main className="min-w-0 flex-1 space-y-6 p-4 sm:p-6">
+          {selectedDomain && scans.length > 0 && (
+            <ScanHistory
+              scans={scans}
+              selectedId={selectedScanId}
+              onSelect={(id) => setPinnedScanId(id === scans[0]?.id ? null : id)}
+            />
+          )}
+          {detail && detail.domain === selectedDomain ? (
+            <ScanDetailView
+              scan={detail}
+              diff={diff?.base && diff.base.domain === detail.domain ? diff : null}
+              isLatest={detail.id === scans[0]?.id}
+              onPause={handlePause}
+              onScanAgain={handleScanAgain}
+            />
           ) : (
-            <EmptyState hasScans={scans.length > 0} />
+            !selectedDomain && <EmptyState />
           )}
         </main>
       </div>
@@ -90,10 +159,10 @@ export default function App() {
   );
 }
 
-function EmptyState({ hasScans }: { hasScans: boolean }) {
+function EmptyState() {
   return (
     <div className="flex h-full min-h-80 flex-col items-center justify-center rounded-xl border border-dashed border-slate-800 text-center">
-      <p className="text-slate-300">{hasScans ? "Select a scan" : "No scans yet"}</p>
+      <p className="text-slate-300">No scans yet</p>
       <p className="mt-1 text-sm text-slate-500">
         Enter a domain above to map its subdomains, DNS records and TLS certificates.
       </p>

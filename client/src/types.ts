@@ -1,4 +1,4 @@
-export type ScanStatus = "queued" | "running" | "completed" | "failed";
+export type ScanStatus = "queued" | "running" | "paused" | "completed" | "failed";
 
 export interface Counts {
   subdomains: number;
@@ -17,6 +17,12 @@ export interface Scan {
   started_at: string | null;
   finished_at: string | null;
   counts: Counts;
+}
+
+export interface Domain {
+  domain: string;
+  scan_count: number;
+  latest: Scan;
 }
 
 export interface Subdomain {
@@ -57,5 +63,28 @@ export interface ScanDetail extends Scan {
   tls_certs: TlsCert[];
 }
 
+export interface SetDiff<T> {
+  added: T[];
+  removed: T[];
+}
+
+export interface CertChange {
+  before: TlsCert;
+  after: TlsCert;
+}
+
+/** Changes since the previous completed scan of the same domain. */
+export type ScanDiff =
+  | { base: null }
+  | {
+      base: Scan;
+      subdomains: SetDiff<Subdomain>;
+      dns_records: SetDiff<DnsRecord>;
+      tls_certs: SetDiff<TlsCert> & { changed: CertChange[] };
+    };
+
 export const isActive = (s: Pick<Scan, "status">) =>
   s.status === "queued" || s.status === "running";
+
+export const dnsKey = (r: DnsRecord) => `${r.host}\u0000${r.type}\u0000${r.value}`;
+export const certKey = (c: Pick<TlsCert, "host" | "port">) => `${c.host}:${c.port}`;

@@ -1,11 +1,18 @@
-import { useMemo, useState } from "react";
-import { api } from "../api";
+import { useEffect, useMemo, useState } from "react";
 import { daysUntil, formatDuration, formatRelative } from "../format";
-import { isActive, type ScanDetail as Detail } from "../types";
+import {
+  certKey,
+  dnsKey,
+  isActive,
+  type Scan,
+  type ScanDetail as Detail,
+  type ScanDiff,
+} from "../types";
 import StatusBadge from "./StatusBadge";
 import SubdomainTable from "./SubdomainTable";
 import DnsTable from "./DnsTable";
 import CertTable from "./CertTable";
+import ChangesPanel, { changeCount } from "./ChangesPanel";
 
 const STAGES = [
   { key: "subdomains", label: "Subdomains", tool: "subfinder" },
@@ -13,16 +20,27 @@ const STAGES = [
   { key: "tls", label: "TLS", tool: "tlsx" },
 ] as const;
 
-type Tab = "subdomains" | "dns" | "tls";
+type Tab = "changes" | "subdomains" | "dns" | "tls";
+type Compared = Extract<ScanDiff, { base: Scan }>;
 
 interface Props {
   scan: Detail;
-  onDeleted: (id: number) => void;
+  /** Diff against the previous completed scan; null if there isn't one. */
+  diff: Compared | null;
+  isLatest: boolean;
+  onPause: (scan: Scan) => Promise<void>;
+  onScanAgain: (domain: string) => Promise<void>;
 }
 
-export default function ScanDetail({ scan, onDeleted }: Props) {
+export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain }: Props) {
   const [tab, setTab] = useState<Tab>("subdomains");
-  const [deleting, setDeleting] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Open on the changes when there are any, once per scan.
+  const changes = diff ? changeCount(diff) : 0;
+  useEffect(() => {
+    setTab(changes > 0 ? "changes" : "subdomains");
+  }, [scan.id, changes > 0]);
 
   const certIssues = useMemo(
     () =>
@@ -39,17 +57,26 @@ export default function ScanDetail({ scan, onDeleted }: Props) {
     [scan.dns_records],
   );
 
-  async function remove() {
-    if (!confirm(`Delete scan of ${scan.domain}?`)) return;
-    setDeleting(true);
+  const added = useMemo(
+    () => ({
+      subdomains: new Set(diff?.subdomains.added.map((s) => s.host)),
+      dns: new Set(diff?.dns_records.added.map(dnsKey)),
+      certs: new Set([
+        ...(diff?.tls_certs.added.map(certKey) ?? []),
+        ...(diff?.tls_certs.changed.map((c) => certKey(c.after)) ?? []),
+      ]),
+    }),
+    [diff],
+  );
+
+  const act = (fn: () => Promise<void>) => async () => {
+    setBusy(true);
     try {
-      await api.deleteScan(scan.id);
-      onDeleted(scan.id);
-    } catch (e) {
-      alert((e as Error).message);
-      setDeleting(false);
+      await fn();
+    } finally {
+      setBusy(false);
     }
-  }
+  };
 
   const active = isActive(scan);
 
@@ -64,17 +91,39 @@ export default function ScanDetail({ scan, onDeleted }: Props) {
           <p className="mt-1 text-sm text-slate-400">
             Scan #{scan.id} · started {formatRelative(scan.created_at)} · took{" "}
             {formatDuration(scan.started_at, scan.finished_at)}
+            {diff && <> · compared with scan #{diff.base.id} from {formatRelative(diff.base.created_at)}</>}
           </p>
         </div>
-        <button
-          onClick={remove}
-          disabled={active || deleting}
-          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-rose-700 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Delete
-        </button>
+        <div className="flex gap-2">
+          {active ? (
+            <button
+              onClick={act(() => onPause(scan))}
+              disabled={busy}
+              className="rounded-lg border border-amber-800 px-3 py-1.5 text-sm text-amber-300 transition hover:bg-amber-950/50 disabled:opacity-50"
+            >
+              {busy ? "Pausing…" : "Pause"}
+            </button>
+          ) : (
+            isLatest && (
+              <button
+                onClick={act(() => onScanAgain(scan.domain))}
+                disabled={busy}
+                className="rounded-lg bg-cyan-500 px-3 py-1.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:opacity-50"
+              >
+                {busy ? "Starting…" : "Scan again"}
+              </button>
+            )
+          )}
+        </div>
       </div>
 
+      {scan.status === "paused" && (
+        <div className="rounded-lg border border-amber-900/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
+          Paused{scan.stage ? ` during the ${scan.stage} stage` : ""}. The tools can't pick up
+          partway through a stage, so <span className="font-medium">Scan again</span> starts a new
+          scan from the beginning. This one stays in the history.
+        </div>
+      )}
       {scan.error && (
         <div className="rounded-lg border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-300">
           {scan.error}
@@ -84,18 +133,31 @@ export default function ScanDetail({ scan, onDeleted }: Props) {
       {active && <Pipeline stage={scan.stage} />}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Stat label="Subdomains" value={scan.subdomains.length} />
+        <Stat
+          label="Subdomains"
+          value={scan.subdomains.length}
+          delta={diff && [diff.subdomains.added.length, diff.subdomains.removed.length]}
+        />
         <Stat label="Resolved hosts" value={resolvedHosts} />
-        <Stat label="DNS records" value={scan.dns_records.length} />
-        <Stat label="TLS certificates" value={scan.tls_certs.length} />
+        <Stat
+          label="DNS records"
+          value={scan.dns_records.length}
+          delta={diff && [diff.dns_records.added.length, diff.dns_records.removed.length]}
+        />
+        <Stat
+          label="TLS certificates"
+          value={scan.tls_certs.length}
+          delta={diff && [diff.tls_certs.added.length, diff.tls_certs.removed.length]}
+        />
         <Stat label="Cert issues" value={certIssues} tone={certIssues > 0 ? "warn" : "ok"} />
       </div>
 
-      {!active && (
+      {scan.status === "completed" && (
         <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40">
-          <nav className="flex gap-1 border-b border-slate-800 px-2">
+          <nav className="flex gap-1 overflow-x-auto border-b border-slate-800 px-2">
             {(
               [
+                ...(diff ? [["changes", "Changes", changes] as const] : []),
                 ["subdomains", "Subdomains", scan.subdomains.length],
                 ["dns", "DNS records", scan.dns_records.length],
                 ["tls", "TLS certificates", scan.tls_certs.length],
@@ -104,41 +166,66 @@ export default function ScanDetail({ scan, onDeleted }: Props) {
               <button
                 key={key}
                 onClick={() => setTab(key)}
-                className={`-mb-px border-b-2 px-3 py-3 text-sm transition ${
+                className={`-mb-px border-b-2 px-3 py-3 text-sm whitespace-nowrap transition ${
                   tab === key
                     ? "border-cyan-400 text-white"
                     : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
                 {label}
-                <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
+                <span
+                  className={`ml-2 rounded px-1.5 py-0.5 text-xs ${
+                    key === "changes" && count > 0
+                      ? "bg-amber-950 text-amber-300"
+                      : "bg-slate-800 text-slate-400"
+                  }`}
+                >
                   {count}
                 </span>
               </button>
             ))}
           </nav>
+          {tab === "changes" && diff && <ChangesPanel diff={diff} />}
           {tab === "subdomains" && (
             <SubdomainTable
               subdomains={scan.subdomains}
               records={scan.dns_records}
               certs={scan.tls_certs}
+              added={added.subdomains}
             />
           )}
-          {tab === "dns" && <DnsTable records={scan.dns_records} />}
-          {tab === "tls" && <CertTable certs={scan.tls_certs} />}
+          {tab === "dns" && <DnsTable records={scan.dns_records} added={added.dns} />}
+          {tab === "tls" && <CertTable certs={scan.tls_certs} added={added.certs} />}
         </section>
       )}
     </div>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone?: "ok" | "warn" }) {
+function Stat({
+  label,
+  value,
+  tone,
+  delta,
+}: {
+  label: string;
+  value: number;
+  tone?: "ok" | "warn";
+  delta?: [added: number, removed: number] | null;
+}) {
   const color =
     tone === "warn" ? "text-amber-300" : tone === "ok" ? "text-emerald-300" : "text-white";
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3">
       <p className="text-xs text-slate-400">{label}</p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>{value}</p>
+      {delta && (delta[0] > 0 || delta[1] > 0) && (
+        <p className="mt-0.5 text-xs tabular-nums">
+          {delta[0] > 0 && <span className="text-emerald-400">+{delta[0]}</span>}
+          {delta[0] > 0 && delta[1] > 0 && <span className="text-slate-600"> / </span>}
+          {delta[1] > 0 && <span className="text-rose-400">−{delta[1]}</span>}
+        </p>
+      )}
     </div>
   );
 }
@@ -148,7 +235,8 @@ function Pipeline({ stage }: { stage: string | null }) {
   return (
     <ol className="grid grid-cols-3 gap-3">
       {STAGES.map((s, i) => {
-        const state = current === -1 ? "pending" : i < current ? "done" : i === current ? "active" : "pending";
+        const state =
+          current === -1 ? "pending" : i < current ? "done" : i === current ? "active" : "pending";
         return (
           <li
             key={s.key}

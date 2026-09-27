@@ -1,4 +1,4 @@
-import type { Scan, ScanDetail } from "./types";
+import type { Domain, Scan, ScanDetail, ScanDiff } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -13,13 +13,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listScans: () => request<Scan[]>("/api/scans"),
+  listDomains: () => request<Domain[]>("/api/domains"),
+  listScans: (domain: string) =>
+    request<Scan[]>(`/api/scans?domain=${encodeURIComponent(domain)}&limit=100`),
   getScan: (id: number) => request<ScanDetail>(`/api/scans/${id}`),
+  getDiff: (id: number) => request<ScanDiff>(`/api/scans/${id}/diff`),
   createScan: (domain: string) =>
     request<Scan>("/api/scans", {
       method: "POST",
       body: JSON.stringify({ domain }),
     }),
-  deleteScan: (id: number) =>
-    request<void>(`/api/scans/${id}`, { method: "DELETE" }),
+  pauseScan: (id: number) => request<Scan>(`/api/scans/${id}/pause`, { method: "POST" }),
 };

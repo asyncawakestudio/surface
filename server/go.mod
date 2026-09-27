@@ -3,6 +3,7 @@ module surface
 go 1.26.0
 
 require (
+	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/miekg/dns v1.1.73
 	github.com/projectdiscovery/dnsx v1.3.1

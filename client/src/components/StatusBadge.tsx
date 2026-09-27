@@ -3,6 +3,7 @@ import type { ScanStatus } from "../types";
 const styles: Record<ScanStatus, string> = {
   queued: "bg-slate-800 text-slate-300 ring-slate-700",
   running: "bg-cyan-950 text-cyan-300 ring-cyan-800",
+  paused: "bg-amber-950 text-amber-300 ring-amber-800",
   completed: "bg-emerald-950 text-emerald-300 ring-emerald-800",
   failed: "bg-rose-950 text-rose-300 ring-rose-800",
 };

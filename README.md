@@ -68,26 +68,30 @@ res, err := scanner.Run(ctx, "example.com", func(s asm.Stage) { log.Println("sta
 
 ## API
 
-| Method | Path              | Description                                  |
-|--------|-------------------|----------------------------------------------|
-| POST   | `/api/scans`      | Start a scan: `{"domain": "example.com"}` → `202` |
-| GET    | `/api/scans`      | List scans with result counts (`?limit=`)    |
-| GET    | `/api/scans/{id}` | Scan with subdomains, DNS records and certs  |
-| DELETE | `/api/scans/{id}` | Delete a finished scan and its results       |
-| GET    | `/healthz`        | Liveness + DB check                          |
+| Method | Path                   | Description                                                   |
+|--------|------------------------|---------------------------------------------------------------|
+| POST   | `/api/scans`           | Start a scan: `{"domain": "example.com"}` → `202`, or `409` if that domain already has a scan in progress |
+| GET    | `/api/scans`           | Scans with result counts, newest first (`?domain=`, `?limit=`) |
+| GET    | `/api/scans/{id}`      | A scan with its subdomains, DNS records and certificates       |
+| GET    | `/api/scans/{id}/diff` | Changes since the domain's previous completed scan (`base` is `null` for the first one) |
+| POST   | `/api/scans/{id}/pause`| Stop a queued or running scan; it's kept as `paused`           |
+| GET    | `/api/domains`         | Every scanned domain with its latest scan and scan count       |
+| GET    | `/healthz`             | Liveness + DB check                                           |
 
-Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed` or `failed`. While running, `stage` is `subdomains`, `dns` or `tls`.
+Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed`, `failed` or `paused`. While running, `stage` is `subdomains`, `dns` or `tls`.
+
+Scans are never deleted: each domain keeps its full history. To rescan a domain, POST it again. The diff compares subdomains by host, DNS records by host+type+value, and certificates by `host:port`. A certificate with a new fingerprint counts as replaced. The tools can't resume partway through a stage, so a paused scan is continued by starting a new one.
 
 ## Database
 
 | Table              | Contents                                        |
 |--------------------|-------------------------------------------------|
-| `scans`            | one row per scan: domain, status, stage, timing |
+| `scans`            | one row per scan: domain, status, stage, timing. At most one queued/running scan per domain (partial unique index) |
 | `subdomains`       | host + the passive sources that reported it     |
 | `dns_records`      | host, record type, value                        |
 | `tls_certificates` | subject, SANs, issuer, validity, flags, SHA-256 |
 
-Migrations in `server/internal/store/migrations` are embedded and applied at startup.
+Migrations in `server/internal/store/migrations` are embedded and applied once each at startup; applied versions are tracked in `schema_migrations`.
 
 ## Configuration
 

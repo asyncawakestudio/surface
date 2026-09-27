@@ -26,10 +26,12 @@ type Store interface {
 	MarkRunning(ctx context.Context, id int64) error
 	SetStage(ctx context.Context, id int64, stage string) error
 	MarkFailed(ctx context.Context, id int64, msg string) error
+	MarkPaused(ctx context.Context, id int64) error
 	SaveResult(ctx context.Context, id int64, res *asm.Result) error
-	ListScans(ctx context.Context, limit int) ([]store.Scan, error)
+	ListScans(ctx context.Context, domain string, limit int) ([]store.Scan, error)
+	ListDomains(ctx context.Context) ([]store.Domain, error)
 	GetScan(ctx context.Context, id int64) (*store.ScanDetail, error)
-	DeleteScan(ctx context.Context, id int64) error
+	PreviousCompleted(ctx context.Context, id int64) (*store.ScanDetail, error)
 }
 
 type API struct {
@@ -49,7 +51,9 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/scans", a.createScan)
 	mux.HandleFunc("GET /api/scans", a.listScans)
 	mux.HandleFunc("GET /api/scans/{id}", a.getScan)
-	mux.HandleFunc("DELETE /api/scans/{id}", a.deleteScan)
+	mux.HandleFunc("GET /api/scans/{id}/diff", a.diffScan)
+	mux.HandleFunc("POST /api/scans/{id}/pause", a.pauseScan)
+	mux.HandleFunc("GET /api/domains", a.listDomains)
 	return logRequests(a.logger, mux)
 }
 
@@ -78,6 +82,10 @@ func (a *API) createScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	scan, err := a.store.CreateScan(r.Context(), domain)
+	if errors.Is(err, store.ErrConflict) {
+		writeError(w, http.StatusConflict, "a scan of this domain is already in progress")
+		return
+	}
 	if err != nil {
 		a.internalError(w, "create scan", err)
 		return
@@ -96,7 +104,16 @@ func (a *API) listScans(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	scans, err := a.store.ListScans(r.Context(), limit)
+	domain := r.URL.Query().Get("domain")
+	if domain != "" {
+		d, err := asm.NormalizeDomain(domain)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid domain")
+			return
+		}
+		domain = d
+	}
+	scans, err := a.store.ListScans(r.Context(), domain, limit)
 	if err != nil {
 		a.internalError(w, "list scans", err)
 		return
@@ -121,25 +138,86 @@ func (a *API) getScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, scan)
 }
 
-func (a *API) deleteScan(w http.ResponseWriter, r *http.Request) {
+// stopWait bounds how long pause waits for a running scan to wind
+// down. In-flight DNS and TLS lookups finish within their own timeouts.
+const stopWait = 15 * time.Second
+
+func (a *API) pauseScan(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(w, r)
 	if !ok {
 		return
 	}
-	if a.jobs.Active(id) {
-		writeError(w, http.StatusConflict, "scan is still running")
+	if !a.jobs.Pause(id, stopWait) {
+		if _, err := a.store.GetScan(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "scan not found")
+			return
+		}
+		writeError(w, http.StatusConflict, "scan is not running")
 		return
 	}
-	err := a.store.DeleteScan(r.Context(), id)
+	a.writeScan(w, r, id, http.StatusOK)
+}
+
+func (a *API) listDomains(w http.ResponseWriter, r *http.Request) {
+	domains, err := a.store.ListDomains(r.Context())
+	if err != nil {
+		a.internalError(w, "list domains", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, domains)
+}
+
+// diffResponse compares a scan with the previous completed scan of the same
+// domain. Base is null for a domain's first completed scan.
+type diffResponse struct {
+	Base *store.Scan `json:"base"`
+	*asm.Diff
+}
+
+func (a *API) diffScan(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	cur, err := a.store.GetScan(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "scan not found")
 		return
 	}
 	if err != nil {
-		a.internalError(w, "delete scan", err)
+		a.internalError(w, "get scan", err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if cur.Status != store.StatusCompleted {
+		writeError(w, http.StatusConflict, "scan has not completed")
+		return
+	}
+
+	prev, err := a.store.PreviousCompleted(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusOK, diffResponse{})
+		return
+	}
+	if err != nil {
+		a.internalError(w, "previous scan", err)
+		return
+	}
+	d := asm.Compare(prev.Result(), cur.Result())
+	writeJSON(w, http.StatusOK, diffResponse{Base: &prev.Scan, Diff: &d})
+}
+
+// writeScan responds with the scan's summary row (without results).
+func (a *API) writeScan(w http.ResponseWriter, r *http.Request, id int64, status int) {
+	d, err := a.store.GetScan(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "scan not found")
+		return
+	}
+	if err != nil {
+		a.internalError(w, "get scan", err)
+		return
+	}
+	writeJSON(w, status, d.Scan)
 }
 
 func (a *API) internalError(w http.ResponseWriter, op string, err error) {

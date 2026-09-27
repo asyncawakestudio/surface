@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"slices"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"surface/internal/asm"
@@ -19,14 +22,19 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-// ErrNotFound is returned when a scan does not exist.
-var ErrNotFound = errors.New("not found")
+var (
+	// ErrNotFound is returned when a scan does not exist.
+	ErrNotFound = errors.New("not found")
+	// ErrConflict is returned when a scan is in the wrong state for an action.
+	ErrConflict = errors.New("conflict")
+)
 
 type Status string
 
 const (
 	StatusQueued    Status = "queued"
 	StatusRunning   Status = "running"
+	StatusPaused    Status = "paused"
 	StatusCompleted Status = "completed"
 	StatusFailed    Status = "failed"
 )
@@ -57,6 +65,11 @@ type ScanDetail struct {
 	Subdomains []asm.Subdomain `json:"subdomains"`
 	DNSRecords []asm.DNSRecord `json:"dns_records"`
 	TLSCerts   []asm.TLSCert   `json:"tls_certs"`
+}
+
+// Result returns the scan's results in the scanner's format.
+func (d *ScanDetail) Result() *asm.Result {
+	return &asm.Result{Domain: d.Domain, Subdomains: d.Subdomains, DNSRecords: d.DNSRecords, TLSCerts: d.TLSCerts}
 }
 
 type Store struct {
@@ -102,29 +115,54 @@ func (s *Store) waitForDB(ctx context.Context) error {
 	return fmt.Errorf("database unreachable: %w", err)
 }
 
+// migrate applies each embedded migration once, in filename order, recording
+// applied versions in schema_migrations.
 func (s *Store) migrate(ctx context.Context) error {
+	if _, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version    TEXT PRIMARY KEY,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`); err != nil {
+		return err
+	}
+
 	files, err := fs.Glob(migrations, "migrations/*.sql")
 	if err != nil {
 		return err
 	}
 	slices.Sort(files)
 	for _, f := range files {
+		version := path.Base(f)
 		sql, err := migrations.ReadFile(f)
 		if err != nil {
 			return err
 		}
-		if _, err := s.pool.Exec(ctx, string(sql)); err != nil {
-			return fmt.Errorf("%s: %w", f, err)
+		err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+			tag, err := tx.Exec(ctx,
+				`INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING`, version)
+			if err != nil || tag.RowsAffected() == 0 {
+				return err // already applied
+			}
+			_, err = tx.Exec(ctx, string(sql))
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("%s: %w", version, err)
 		}
 	}
 	return nil
 }
 
-// CreateScan inserts a queued scan for domain.
+// CreateScan inserts a queued scan for domain. It returns ErrConflict if
+// the domain already has a queued or running scan.
 func (s *Store) CreateScan(ctx context.Context, domain string) (*Scan, error) {
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO scans (domain) VALUES ($1) RETURNING `+scanColumns, domain)
-	return scanRow(row)
+	sc, err := scanRow(row)
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok &&
+		pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "scans_one_active_per_domain" {
+		return nil, ErrConflict
+	}
+	return sc, err
 }
 
 // MarkRunning moves a scan into the running state.
@@ -144,6 +182,14 @@ func (s *Store) SetStage(ctx context.Context, id int64, stage string) error {
 func (s *Store) MarkFailed(ctx context.Context, id int64, msg string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE scans SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`, id, msg)
+	return err
+}
+
+// MarkPaused stops a scan without an error. The stage it was in is kept so
+// the UI can show where it stopped.
+func (s *Store) MarkPaused(ctx context.Context, id int64) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE scans SET status = 'paused', finished_at = now() WHERE id = $1`, id)
 	return err
 }
 
@@ -197,10 +243,78 @@ func (s *Store) SaveResult(ctx context.Context, id int64, res *asm.Result) error
 	})
 }
 
-// ListScans returns the most recent scans, newest first.
-func (s *Store) ListScans(ctx context.Context, limit int) ([]Scan, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT `+scanColumns+` FROM scans ORDER BY created_at DESC LIMIT $1`, limit)
+// ListScans returns the most recent scans, newest first, optionally only
+// those of one domain.
+func (s *Store) ListScans(ctx context.Context, domain string, limit int) ([]Scan, error) {
+	return s.queryScans(ctx,
+		`SELECT `+scanColumns+` FROM scans
+		 WHERE $1 = '' OR domain = $1
+		 ORDER BY created_at DESC LIMIT $2`, domain, limit)
+}
+
+// Domain summarizes every scan of one domain.
+type Domain struct {
+	Domain    string `json:"domain"`
+	ScanCount int    `json:"scan_count"`
+	Latest    Scan   `json:"latest"`
+}
+
+// ListDomains returns each scanned domain with its latest scan, most
+// recently scanned first.
+func (s *Store) ListDomains(ctx context.Context) ([]Domain, error) {
+	latest, err := s.queryScans(ctx,
+		`SELECT * FROM (
+		   SELECT DISTINCT ON (domain) `+scanColumns+` FROM scans ORDER BY domain, created_at DESC
+		 ) latest ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+
+	counts := map[string]int{}
+	rows, err := s.pool.Query(ctx, `SELECT domain, count(*) FROM scans GROUP BY domain`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		var n int
+		if err := rows.Scan(&d, &n); err != nil {
+			return nil, err
+		}
+		counts[d] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]Domain, len(latest))
+	for i, sc := range latest {
+		out[i] = Domain{Domain: sc.Domain, ScanCount: counts[sc.Domain], Latest: sc}
+	}
+	return out, nil
+}
+
+// PreviousCompleted returns the most recent completed scan of the same
+// domain that was created before scan id, with its results. It returns
+// ErrNotFound if there is none.
+func (s *Store) PreviousCompleted(ctx context.Context, id int64) (*ScanDetail, error) {
+	var prevID int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT p.id FROM scans p JOIN scans c ON c.id = $1
+		 WHERE p.domain = c.domain AND p.status = 'completed' AND p.created_at < c.created_at
+		 ORDER BY p.created_at DESC LIMIT 1`, id).Scan(&prevID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.GetScan(ctx, prevID)
+}
+
+func (s *Store) queryScans(ctx context.Context, sql string, args ...any) ([]Scan, error) {
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -268,23 +382,11 @@ func (s *Store) GetScan(ctx context.Context, id int64) (*ScanDetail, error) {
 	return d, nil
 }
 
-// DeleteScan removes a scan and (via cascade) its results.
-func (s *Store) DeleteScan(ctx context.Context, id int64) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM scans WHERE id = $1`, id)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
 const scanColumns = `id, domain, status, stage, error, created_at, started_at, finished_at,
-	(SELECT count(*) FROM subdomains s WHERE s.scan_id = scans.id),
-	(SELECT count(DISTINCT host) FROM dns_records d WHERE d.scan_id = scans.id AND d.record_type IN ('A', 'AAAA')),
-	(SELECT count(*) FROM dns_records d WHERE d.scan_id = scans.id),
-	(SELECT count(*) FROM tls_certificates t WHERE t.scan_id = scans.id)`
+	(SELECT count(*) FROM subdomains s WHERE s.scan_id = scans.id) AS subdomain_count,
+	(SELECT count(DISTINCT host) FROM dns_records d WHERE d.scan_id = scans.id AND d.record_type IN ('A', 'AAAA')) AS resolved_count,
+	(SELECT count(*) FROM dns_records d WHERE d.scan_id = scans.id) AS dns_record_count,
+	(SELECT count(*) FROM tls_certificates t WHERE t.scan_id = scans.id) AS tls_cert_count`
 
 func scanRow(row pgx.Row) (*Scan, error) {
 	var sc Scan

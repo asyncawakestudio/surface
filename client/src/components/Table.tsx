@@ -70,3 +70,11 @@ const tones = {
   rose: "bg-rose-950/60 text-rose-300 ring-rose-900",
   violet: "bg-violet-950/60 text-violet-300 ring-violet-900",
 };
+
+export function NewChip({ show }: { show: boolean }) {
+  return show ? (
+    <span className="ml-2 align-middle">
+      <Chip tone="emerald">new</Chip>
+    </span>
+  ) : null;
+}

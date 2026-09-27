@@ -1,9 +1,9 @@
 import { Fragment, useState, type ReactNode } from "react";
 import { daysUntil, formatDate } from "../format";
-import type { TlsCert } from "../types";
-import { Chip, EmptyRow, SearchBar, Table } from "./Table";
+import { certKey, type TlsCert } from "../types";
+import { Chip, EmptyRow, NewChip, SearchBar, Table } from "./Table";
 
-export default function CertTable({ certs }: { certs: TlsCert[] }) {
+export default function CertTable({ certs, added }: { certs: TlsCert[]; added?: Set<string> }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
 
@@ -21,7 +21,7 @@ export default function CertTable({ certs }: { certs: TlsCert[] }) {
       <Table head={["Host", "Subject", "Issuer", "Expires", "TLS", "Flags"]}>
         {rows.length === 0 && <EmptyRow cols={6} />}
         {rows.map((c) => {
-          const key = `${c.host}:${c.port}`;
+          const key = certKey(c);
           const days = daysUntil(c.not_after);
           return (
             <Fragment key={key}>
@@ -33,6 +33,7 @@ export default function CertTable({ certs }: { certs: TlsCert[] }) {
                   <span className="mr-1 inline-block w-3 text-slate-500">{open === key ? "▾" : "▸"}</span>
                   {c.host}
                   <span className="text-slate-500">:{c.port}</span>
+                  <NewChip show={!!added?.has(key)} />
                 </td>
                 <td className="px-4 py-2 font-mono text-xs text-slate-300">{c.subject_cn || "—"}</td>
                 <td className="px-4 py-2 text-slate-300">
