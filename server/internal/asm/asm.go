@@ -1,0 +1,193 @@
+// Package asm implements the attack surface discovery pipeline.
+//
+// A scan runs a sequence of stages against a root domain:
+//
+//	subdomains (subfinder) -> dns (dnsx) -> tls (tlsx)
+//
+// Port scanning and service enumeration will slot in after the DNS stage,
+// since they need resolved hosts as input.
+package asm
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// Stage identifies a step of the scan pipeline.
+type Stage string
+
+const (
+	StageSubdomains Stage = "subdomains"
+	StageDNS        Stage = "dns"
+	StageTLS        Stage = "tls"
+)
+
+// ProgressFunc is called when the scan enters a new stage.
+type ProgressFunc func(Stage)
+
+// Subdomain is a hostname discovered by passive enumeration.
+type Subdomain struct {
+	Host    string   `json:"host"`
+	Sources []string `json:"sources"`
+}
+
+// DNSRecord is a single resolved record for a host.
+type DNSRecord struct {
+	Host  string `json:"host"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+// TLSCert is the leaf certificate presented by a host.
+type TLSCert struct {
+	Host              string    `json:"host"`
+	IP                string    `json:"ip"`
+	Port              int       `json:"port"`
+	TLSVersion        string    `json:"tls_version"`
+	Cipher            string    `json:"cipher"`
+	SubjectCN         string    `json:"subject_cn"`
+	SubjectOrg        []string  `json:"subject_org"`
+	SANs              []string  `json:"sans"`
+	IssuerCN          string    `json:"issuer_cn"`
+	IssuerOrg         []string  `json:"issuer_org"`
+	Serial            string    `json:"serial"`
+	NotBefore         time.Time `json:"not_before"`
+	NotAfter          time.Time `json:"not_after"`
+	Expired           bool      `json:"expired"`
+	SelfSigned        bool      `json:"self_signed"`
+	Mismatched        bool      `json:"mismatched"`
+	Wildcard          bool      `json:"wildcard"`
+	FingerprintSHA256 string    `json:"fingerprint_sha256"`
+}
+
+// Result is everything discovered for a domain.
+type Result struct {
+	Domain     string      `json:"domain"`
+	Subdomains []Subdomain `json:"subdomains"`
+	DNSRecords []DNSRecord `json:"dns_records"`
+	TLSCerts   []TLSCert   `json:"tls_certs"`
+}
+
+// Options tunes the scanner. Zero values fall back to defaults.
+type Options struct {
+	// SubfinderProviderConfig is the path to a subfinder provider-config.yaml
+	// holding API keys for passive sources. Optional.
+	SubfinderProviderConfig string
+	// SubfinderMaxTime caps passive enumeration time.
+	SubfinderMaxTime time.Duration
+	// Resolvers overrides the DNS resolvers used by dnsx ("1.1.1.1:53").
+	Resolvers []string
+	// DNSConcurrency is the number of hosts resolved in parallel.
+	DNSConcurrency int
+	// TLSConcurrency is the number of hosts probed for TLS in parallel.
+	TLSConcurrency int
+	// TLSPorts are the ports probed for certificates.
+	TLSPorts []int
+	// TLSTimeout is the per-connection timeout.
+	TLSTimeout time.Duration
+}
+
+func (o Options) withDefaults() Options {
+	if o.SubfinderMaxTime <= 0 {
+		o.SubfinderMaxTime = 10 * time.Minute
+	}
+	if o.DNSConcurrency <= 0 {
+		o.DNSConcurrency = 50
+	}
+	if o.TLSConcurrency <= 0 {
+		o.TLSConcurrency = 25
+	}
+	if len(o.TLSPorts) == 0 {
+		o.TLSPorts = []int{443}
+	}
+	if o.TLSTimeout <= 0 {
+		o.TLSTimeout = 5 * time.Second
+	}
+	return o
+}
+
+// Scanner runs the discovery pipeline. It is safe for concurrent use.
+type Scanner struct {
+	opts Options
+}
+
+// New returns a Scanner configured with opts.
+func New(opts Options) *Scanner {
+	return &Scanner{opts: opts.withDefaults()}
+}
+
+// Run executes every stage against domain and returns the combined result.
+// progress may be nil.
+func (s *Scanner) Run(ctx context.Context, domain string, progress ProgressFunc) (*Result, error) {
+	domain, err := NormalizeDomain(domain)
+	if err != nil {
+		return nil, err
+	}
+	if progress == nil {
+		progress = func(Stage) {}
+	}
+
+	res := &Result{Domain: domain}
+
+	progress(StageSubdomains)
+	res.Subdomains, err = s.enumerateSubdomains(ctx, domain)
+	if err != nil {
+		return nil, fmt.Errorf("subdomain enumeration: %w", err)
+	}
+
+	hosts := make([]string, len(res.Subdomains))
+	for i, sd := range res.Subdomains {
+		hosts[i] = sd.Host
+	}
+
+	progress(StageDNS)
+	records, resolved, err := s.resolve(ctx, hosts)
+	if err != nil {
+		return nil, fmt.Errorf("dns resolution: %w", err)
+	}
+	res.DNSRecords = records
+
+	// TODO: port scanning + service enumeration go here, feeding open ports
+	// into the TLS stage instead of the static TLSPorts list.
+
+	progress(StageTLS)
+	res.TLSCerts, err = s.grabCerts(ctx, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("tls probing: %w", err)
+	}
+
+	return res, nil
+}
+
+var domainRe = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+
+// ErrInvalidDomain is returned for input that is not a registrable hostname.
+var ErrInvalidDomain = errors.New("invalid domain")
+
+// NormalizeDomain accepts a bare domain or a URL and returns the lowercased
+// hostname, e.g. "https://Example.com/path" -> "example.com".
+func NormalizeDomain(input string) (string, error) {
+	s := strings.TrimSpace(strings.ToLower(input))
+	if strings.Contains(s, "://") {
+		u, err := url.Parse(s)
+		if err != nil {
+			return "", ErrInvalidDomain
+		}
+		s = u.Hostname()
+	}
+	if h, _, err := net.SplitHostPort(s); err == nil {
+		s = h
+	}
+	s = strings.TrimPrefix(s, "*.")
+	s = strings.TrimSuffix(s, ".")
+	if len(s) > 253 || !domainRe.MatchString(s) {
+		return "", ErrInvalidDomain
+	}
+	return s, nil
+}

@@ -1,0 +1,9 @@
+# Copy to provider-config.yaml and add API keys to enable more passive sources.
+# Keys are lists; subfinder rotates between them.
+# See https://docs.projectdiscovery.io/tools/subfinder/install#post-install-configuration
+securitytrails: []
+virustotal: []
+chaos: []
+github: []
+shodan: []
+censys: []

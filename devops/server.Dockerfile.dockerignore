@@ -1,0 +1,7 @@
+*
+!server/
+!client/
+server/tmp/
+server/bin/
+client/node_modules/
+client/dist/

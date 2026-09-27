@@ -1,0 +1,68 @@
+# Development stack: Postgres + Go API (air hot reload) + Vite dev server (HMR).
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: surface
+      POSTGRES_PASSWORD: surface
+      POSTGRES_DB: surface
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U surface -d surface"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build:
+      context: ..
+      dockerfile: devops/server.Dockerfile
+      target: dev
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://surface:surface@db:5432/surface?sslmode=disable
+      # Mount a subfinder provider-config.yaml here to enable API-key sources.
+      SUBFINDER_PROVIDER_CONFIG: /config/subfinder/provider-config.yaml
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../server:/app
+      - ./config:/config:ro
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    depends_on:
+      db:
+        condition: service_healthy
+    # The first boot compiles the whole dependency tree, which can take a few
+    # minutes; the client waits for this instead of logging proxy errors.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      start_period: 10m
+      start_interval: 3s
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  client:
+    build:
+      context: ..
+      dockerfile: devops/client.Dockerfile
+    environment:
+      API_URL: http://server:8080
+      VITE_USE_POLLING: "true"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../client:/app
+      - /app/node_modules
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  go-mod-cache:
+  go-build-cache:

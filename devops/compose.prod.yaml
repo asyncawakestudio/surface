@@ -1,0 +1,38 @@
+# Production-style stack: distroless Go server serving both the API and the
+# built client on http://localhost:8080.
+#   docker compose -f devops/compose.prod.yaml up --build
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: surface
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-surface}
+      POSTGRES_DB: surface
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U surface -d surface"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ..
+      dockerfile: devops/server.Dockerfile
+      target: prod
+    environment:
+      DATABASE_URL: postgres://surface:${POSTGRES_PASSWORD:-surface}@db:5432/surface?sslmode=disable
+      SUBFINDER_PROVIDER_CONFIG: /config/subfinder/provider-config.yaml
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
