@@ -11,6 +11,7 @@ type Diff struct {
 	Subdomains SubdomainDiff      `json:"subdomains"`
 	DNSRecords SetDiff[DNSRecord] `json:"dns_records"`
 	TLSCerts   CertDiff           `json:"tls_certs"`
+	IPInfo     IPInfoDiff         `json:"ip_info"`
 }
 
 // SetDiff lists items present in only one of two scans.
@@ -44,12 +45,14 @@ type CertChange struct {
 func (d Diff) Empty() bool {
 	return len(d.Subdomains.Added)+len(d.Subdomains.Removed)+len(d.Subdomains.NoLongerReported)+
 		len(d.DNSRecords.Added)+len(d.DNSRecords.Removed)+
-		len(d.TLSCerts.Added)+len(d.TLSCerts.Removed)+len(d.TLSCerts.Changed) == 0
+		len(d.TLSCerts.Added)+len(d.TLSCerts.Removed)+len(d.TLSCerts.Changed)+
+		len(d.IPInfo.Added)+len(d.IPInfo.Removed)+len(d.IPInfo.Changed) == 0
 }
 
 // Compare returns the changes from prev to cur. Subdomains are compared by
-// host, DNS records by (host, type, value) and certificates by endpoint,
-// with a changed fingerprint counting as a replaced certificate.
+// host, DNS records by (host, type, value), certificates by endpoint (a
+// changed fingerprint counts as a replaced certificate) and ipinfo data by
+// IP, field by field.
 func Compare(prev, cur *Result) Diff {
 	d := Diff{
 		Subdomains: SubdomainDiff{
@@ -89,6 +92,8 @@ func Compare(prev, cur *Result) Diff {
 	slices.SortFunc(d.TLSCerts.Changed, func(a, b CertChange) int {
 		return strings.Compare(endpoint(a.After), endpoint(b.After))
 	})
+
+	d.IPInfo = compareIPInfo(prev, cur)
 	return d
 }
 

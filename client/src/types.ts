@@ -5,6 +5,7 @@ export interface Counts {
   resolved_hosts: number;
   dns_records: number;
   tls_certs: number;
+  ip_addresses: number;
 }
 
 export interface Scan {
@@ -59,10 +60,18 @@ export interface TlsCert {
   fingerprint_sha256: string;
 }
 
+/** IPDR: the ipinfo.io response for one IP, or the error if the lookup failed. */
+export interface IpInfo {
+  ip: string;
+  data: Record<string, unknown> | null;
+  error?: string;
+}
+
 export interface ScanDetail extends Scan {
   subdomains: Subdomain[];
   dns_records: DnsRecord[];
   tls_certs: TlsCert[];
+  ip_info: IpInfo[];
 }
 
 export interface SetDiff<T> {
@@ -75,6 +84,17 @@ export interface CertChange {
   after: TlsCert;
 }
 
+export interface FieldChange {
+  field: string;
+  before: string;
+  after: string;
+}
+
+export interface IpInfoChange {
+  ip: string;
+  fields: FieldChange[];
+}
+
 /** Changes since the previous completed scan of the same domain. */
 export type ScanDiff =
   | { base: null }
@@ -83,6 +103,8 @@ export type ScanDiff =
       subdomains: SetDiff<Subdomain> & { no_longer_reported: Subdomain[] };
       dns_records: SetDiff<DnsRecord>;
       tls_certs: SetDiff<TlsCert> & { changed: CertChange[] };
+      /** compared is false when the base scan predates IP lookups. */
+      ip_info: SetDiff<IpInfo> & { compared: boolean; changed: IpInfoChange[] };
     };
 
 export const isActive = (s: Pick<Scan, "status">) =>

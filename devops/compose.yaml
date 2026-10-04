@@ -26,6 +26,8 @@ services:
       DATABASE_URL: postgres://surface:surface@db:5432/surface?sslmode=disable
       # Mount a subfinder provider-config.yaml here to enable API-key sources.
       SUBFINDER_PROVIDER_CONFIG: /config/subfinder/provider-config.yaml
+      # Optional ipinfo.io token (set in your shell or devops/.env).
+      IPINFO_TOKEN: ${IPINFO_TOKEN:-}
     ports:
       - "8080:8080"
     volumes:

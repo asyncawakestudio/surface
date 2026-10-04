@@ -1,6 +1,9 @@
 package asm
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestCompare(t *testing.T) {
 	prev := &Result{
@@ -99,5 +102,77 @@ func TestCompareNoLongerReported(t *testing.T) {
 	}
 	if len(d.Subdomains.Removed) != 0 || d.Empty() {
 		t.Fatalf("diff = %+v", d.Subdomains)
+	}
+}
+
+func TestCompareIPInfo(t *testing.T) {
+	pub := []DNSRecord{{Host: "a.example.com", Type: "A", Value: "93.184.215.14"}}
+	prev := &Result{DNSRecords: pub, IPInfo: []IPInfo{
+		{IP: "93.184.215.14", Data: json.RawMessage(`{"ip":"93.184.215.14","org":"AS15133 Edgecast","asn":{"asn":"AS15133"},"city":"LA","readme":"x"}`)},
+		{IP: "1.1.1.1", Data: json.RawMessage(`{"org":"AS13335 Cloudflare"}`)},
+		{IP: "8.8.8.8", Error: "ipinfo: HTTP 429"},
+		{IP: "9.9.9.9", Data: json.RawMessage(`{"org":"AS19281 Quad9","anycast":true}`)},
+	}}
+	cur := &Result{IPInfo: []IPInfo{
+		// Owner moved; readme differs but is ignored; city unchanged.
+		{IP: "93.184.215.14", Data: json.RawMessage(`{"ip":"93.184.215.14","org":"AS13335 Cloudflare","asn":{"asn":"AS13335"},"city":"LA","readme":"y"}`)},
+		{IP: "8.8.8.8", Data: json.RawMessage(`{"org":"AS15169 Google"}`)}, // was a failed lookup: not a change
+		{IP: "9.9.9.9", Data: json.RawMessage(`{"org":"AS19281 Quad9","anycast":true}`)},
+		{IP: "2606:4700::1111", Data: json.RawMessage(`{"org":"AS13335 Cloudflare"}`)},
+	}}
+
+	d := Compare(prev, cur).IPInfo
+	if !d.Compared {
+		t.Fatal("Compared = false")
+	}
+	if len(d.Added) != 1 || d.Added[0].IP != "2606:4700::1111" || len(d.Removed) != 1 || d.Removed[0].IP != "1.1.1.1" {
+		t.Fatalf("added/removed = %+v / %+v", d.Added, d.Removed)
+	}
+	if len(d.Changed) != 1 || d.Changed[0].IP != "93.184.215.14" {
+		t.Fatalf("changed = %+v", d.Changed)
+	}
+	got := d.Changed[0].Fields
+	want := []FieldChange{
+		{Field: "asn.asn", Before: "AS15133", After: "AS13335"},
+		{Field: "org", Before: "AS15133 Edgecast", After: "AS13335 Cloudflare"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("fields = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("field[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestCompareIPInfoWithoutBaseline(t *testing.T) {
+	// The previous scan resolved public IPs but has no ipinfo data: it ran
+	// before IP lookups existed, so every IP would wrongly look new.
+	dns := []DNSRecord{{Host: "a.example.com", Type: "A", Value: "93.184.215.14"}}
+	prev := &Result{DNSRecords: dns}
+	cur := &Result{DNSRecords: dns, IPInfo: []IPInfo{{IP: "93.184.215.14", Data: json.RawMessage(`{}`)}}}
+	d := Compare(prev, cur)
+	if d.IPInfo.Compared || len(d.IPInfo.Added) != 0 || !d.Empty() {
+		t.Fatalf("diff = %+v", d.IPInfo)
+	}
+
+	// A previous scan with no public IPs is a real baseline.
+	d = Compare(&Result{DNSRecords: []DNSRecord{{Host: "a.example.com", Type: "A", Value: "10.0.0.1"}}}, cur)
+	if !d.IPInfo.Compared || len(d.IPInfo.Added) != 1 {
+		t.Fatalf("diff = %+v", d.IPInfo)
+	}
+}
+
+func TestFlattenJSON(t *testing.T) {
+	got := flattenJSON(json.RawMessage(`{"a":{"b":1.50,"c":null},"d":[1,"x"],"e":true,"f":12345678901234567890}`))
+	want := map[string]string{"a.b": "1.50", "a.c": "", "d": `[1,"x"]`, "e": "true", "f": "12345678901234567890"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
 	}
 }

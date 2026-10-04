@@ -2,7 +2,7 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> tls (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipinfo (ipinfo.io) -> tls (tlsx)
 //
 // Port scanning and service enumeration will slot in after the DNS stage,
 // since they need resolved hosts as input.
@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -27,6 +28,7 @@ type Stage string
 const (
 	StageSubdomains Stage = "subdomains"
 	StageDNS        Stage = "dns"
+	StageIPInfo     Stage = "ipinfo"
 	StageTLS        Stage = "tls"
 )
 
@@ -86,6 +88,7 @@ type Result struct {
 	Subdomains []Subdomain `json:"subdomains"`
 	DNSRecords []DNSRecord `json:"dns_records"`
 	TLSCerts   []TLSCert   `json:"tls_certs"`
+	IPInfo     []IPInfo    `json:"ip_info"`
 }
 
 // Options tunes the scanner. Zero values fall back to defaults.
@@ -107,6 +110,15 @@ type Options struct {
 	TLSPorts []int
 	// TLSTimeout is the per-connection timeout.
 	TLSTimeout time.Duration
+	// IPInfoToken authenticates ipinfo.io lookups. Optional: without it the
+	// free tier's lower rate limits apply.
+	IPInfoToken string
+	// IPInfoBaseURL defaults to https://ipinfo.io.
+	IPInfoBaseURL string
+	// IPInfoConcurrency is the number of ipinfo lookups in flight.
+	IPInfoConcurrency int
+	// HTTPClient is used for ipinfo lookups.
+	HTTPClient *http.Client
 	// Logger receives stage diagnostics. Defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -126,6 +138,15 @@ func (o Options) withDefaults() Options {
 	}
 	if o.TLSTimeout <= 0 {
 		o.TLSTimeout = 5 * time.Second
+	}
+	if o.IPInfoBaseURL == "" {
+		o.IPInfoBaseURL = "https://ipinfo.io"
+	}
+	if o.IPInfoConcurrency <= 0 {
+		o.IPInfoConcurrency = 8
+	}
+	if o.HTTPClient == nil {
+		o.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
 	if o.Logger == nil {
 		o.Logger = slog.Default()
@@ -174,6 +195,12 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		return nil, fmt.Errorf("dns resolution: %w", err)
 	}
 	res.DNSRecords = records
+
+	progress(StageIPInfo)
+	res.IPInfo, err = s.lookupIPs(ctx, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("ip lookup: %w", err)
+	}
 
 	// TODO: port scanning + service enumeration go here, feeding open ports
 	// into the TLS stage instead of the static TLSPorts list.

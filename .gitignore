@@ -2,3 +2,4 @@ server/tmp/
 server/bin/
 *.log
 devops/config/subfinder/provider-config.yaml
+devops/.env

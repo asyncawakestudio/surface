@@ -76,7 +76,7 @@ func (f *fakeStore) MarkPaused(_ context.Context, id int64) error {
 func (f *fakeStore) SaveResult(_ context.Context, id int64, res *asm.Result) error {
 	return f.update(id, func(d *store.ScanDetail) {
 		d.Status = store.StatusCompleted
-		d.Subdomains, d.DNSRecords, d.TLSCerts = res.Subdomains, res.DNSRecords, res.TLSCerts
+		d.Subdomains, d.DNSRecords, d.TLSCerts, d.IPInfo = res.Subdomains, res.DNSRecords, res.TLSCerts, res.IPInfo
 	})
 }
 

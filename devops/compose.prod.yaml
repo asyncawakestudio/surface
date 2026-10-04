@@ -25,6 +25,8 @@ services:
     environment:
       DATABASE_URL: postgres://surface:${POSTGRES_PASSWORD:-surface}@db:5432/surface?sslmode=disable
       SUBFINDER_PROVIDER_CONFIG: /config/subfinder/provider-config.yaml
+      # Optional ipinfo.io token (set in your shell or devops/.env).
+      IPINFO_TOKEN: ${IPINFO_TOKEN:-}
     ports:
       - "8080:8080"
     volumes:

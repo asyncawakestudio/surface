@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -43,8 +44,8 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 	if err := s.pool.QueryRow(context.Background(), `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 4 {
-		t.Fatalf("schema_migrations rows = %d, want 4", n)
+	if n != 5 {
+		t.Fatalf("schema_migrations rows = %d, want 5", n)
 	}
 }
 
@@ -174,6 +175,41 @@ func TestKnownSubdomains(t *testing.T) {
 	must(t, err)
 	if none == nil || len(none) != 0 {
 		t.Fatalf("known for unscanned domain = %#v, want empty slice", none)
+	}
+}
+
+func TestIPInfoRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sc, err := s.CreateScan(ctx, "example.com")
+	must(t, err)
+	raw := `{"ip":"93.184.215.14","city":"Los Angeles","asn":{"asn":"AS15133","name":"Edgecast"}}`
+	must(t, s.SaveResult(ctx, sc.ID, &asm.Result{IPInfo: []asm.IPInfo{
+		{IP: "93.184.215.14", Data: json.RawMessage(raw)},
+		{IP: "1.1.1.1", Error: "ipinfo: HTTP 429: Rate limit exceeded"},
+	}}))
+
+	d, err := s.GetScan(ctx, sc.ID)
+	must(t, err)
+	if d.Counts.IPAddresses != 2 || len(d.IPInfo) != 2 {
+		t.Fatalf("count = %d, records = %+v", d.Counts.IPAddresses, d.IPInfo)
+	}
+	failed, ok := d.IPInfo[0], d.IPInfo[1] // ordered by ip
+	if failed.IP != "1.1.1.1" || failed.Data != nil || !strings.Contains(failed.Error, "429") {
+		t.Fatalf("failed record = %+v", failed)
+	}
+	var got, want map[string]any
+	must(t, json.Unmarshal(ok.Data, &got))
+	must(t, json.Unmarshal([]byte(raw), &want))
+	if got["city"] != want["city"] || got["asn"].(map[string]any)["name"] != "Edgecast" || ok.Error != "" {
+		t.Fatalf("ok record = %s / %q", ok.Data, ok.Error)
+	}
+
+	var nulls int
+	must(t, s.pool.QueryRow(ctx, `SELECT count(*) FROM ip_info WHERE data IS NULL`).Scan(&nulls))
+	if nulls != 1 {
+		t.Fatalf("SQL NULL data rows = %d, want 1 (not JSON null)", nulls)
 	}
 }
 

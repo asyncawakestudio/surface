@@ -57,6 +57,7 @@ type Counts struct {
 	ResolvedHosts int `json:"resolved_hosts"`
 	DNSRecords    int `json:"dns_records"`
 	TLSCerts      int `json:"tls_certs"`
+	IPAddresses   int `json:"ip_addresses"`
 }
 
 // ScanDetail is a scan with its full results.
@@ -65,11 +66,12 @@ type ScanDetail struct {
 	Subdomains []asm.Subdomain `json:"subdomains"`
 	DNSRecords []asm.DNSRecord `json:"dns_records"`
 	TLSCerts   []asm.TLSCert   `json:"tls_certs"`
+	IPInfo     []asm.IPInfo    `json:"ip_info"`
 }
 
 // Result returns the scan's results in the scanner's format.
 func (d *ScanDetail) Result() *asm.Result {
-	return &asm.Result{Domain: d.Domain, Subdomains: d.Subdomains, DNSRecords: d.DNSRecords, TLSCerts: d.TLSCerts}
+	return &asm.Result{Domain: d.Domain, Subdomains: d.Subdomains, DNSRecords: d.DNSRecords, TLSCerts: d.TLSCerts, IPInfo: d.IPInfo}
 }
 
 type Store struct {
@@ -235,6 +237,23 @@ func (s *Store) SaveResult(ctx context.Context, id int64, res *asm.Result) error
 					c.FingerprintSHA256}, nil
 			})); err != nil {
 			return fmt.Errorf("insert tls certificates: %w", err)
+		}
+
+		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"ip_info"},
+			[]string{"scan_id", "ip", "data", "error"},
+			pgx.CopyFromSlice(len(res.IPInfo), func(i int) ([]any, error) {
+				info := res.IPInfo[i]
+				// SQL NULL, not JSON null, for failed lookups.
+				var data, errMsg any
+				if info.Data != nil {
+					data = []byte(info.Data)
+				}
+				if info.Error != "" {
+					errMsg = info.Error
+				}
+				return []any{id, info.IP, data, errMsg}, nil
+			})); err != nil {
+			return fmt.Errorf("insert ip info: %w", err)
 		}
 
 		_, err := tx.Exec(ctx,
@@ -408,6 +427,23 @@ func (s *Store) GetScan(ctx context.Context, id int64) (*ScanDetail, error) {
 		return nil, err
 	}
 
+	d.IPInfo, err = collect(ctx, s.pool,
+		`SELECT ip, data, COALESCE(error, '') FROM ip_info WHERE scan_id = $1 ORDER BY ip`, id,
+		func(r pgx.Rows) (asm.IPInfo, error) {
+			var v asm.IPInfo
+			var data []byte
+			if err := r.Scan(&v.IP, &data, &v.Error); err != nil {
+				return v, err
+			}
+			if data != nil {
+				v.Data = data
+			}
+			return v, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
 	return d, nil
 }
 
@@ -415,13 +451,15 @@ const scanColumns = `id, domain, status, stage, error, created_at, started_at, f
 	(SELECT count(*) FROM subdomains s WHERE s.scan_id = scans.id) AS subdomain_count,
 	(SELECT count(DISTINCT host) FROM dns_records d WHERE d.scan_id = scans.id AND d.record_type IN ('A', 'AAAA')) AS resolved_count,
 	(SELECT count(*) FROM dns_records d WHERE d.scan_id = scans.id) AS dns_record_count,
-	(SELECT count(*) FROM tls_certificates t WHERE t.scan_id = scans.id) AS tls_cert_count`
+	(SELECT count(*) FROM tls_certificates t WHERE t.scan_id = scans.id) AS tls_cert_count,
+	(SELECT count(*) FROM ip_info i WHERE i.scan_id = scans.id) AS ip_count`
 
 func scanRow(row pgx.Row) (*Scan, error) {
 	var sc Scan
 	err := row.Scan(&sc.ID, &sc.Domain, &sc.Status, &sc.Stage, &sc.Error,
 		&sc.CreatedAt, &sc.StartedAt, &sc.FinishedAt,
-		&sc.Counts.Subdomains, &sc.Counts.ResolvedHosts, &sc.Counts.DNSRecords, &sc.Counts.TLSCerts)
+		&sc.Counts.Subdomains, &sc.Counts.ResolvedHosts, &sc.Counts.DNSRecords, &sc.Counts.TLSCerts,
+		&sc.Counts.IPAddresses)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { formatDate } from "../format";
-import type { Scan, ScanDiff } from "../types";
+import type { IpInfo, Scan, ScanDiff } from "../types";
 import { Chip } from "./Table";
 
 type Compared = Extract<ScanDiff, { base: Scan }>;
@@ -14,7 +14,10 @@ export function changeCount(d: Compared): number {
     d.dns_records.removed.length +
     d.tls_certs.added.length +
     d.tls_certs.removed.length +
-    d.tls_certs.changed.length
+    d.tls_certs.changed.length +
+    d.ip_info.added.length +
+    d.ip_info.removed.length +
+    d.ip_info.changed.length
   );
 }
 
@@ -27,7 +30,7 @@ export default function ChangesPanel({ diff }: { diff: Compared }) {
     );
   }
 
-  const { subdomains, dns_records, tls_certs } = diff;
+  const { subdomains, dns_records, tls_certs, ip_info } = diff;
 
   return (
     <div className="divide-y divide-slate-800">
@@ -97,8 +100,55 @@ export default function ChangesPanel({ diff }: { diff: Compared }) {
           </Row>
         ))}
       </Section>
+
+      <Section
+        title="IPDR"
+        added={ip_info.added.length}
+        removed={ip_info.removed.length}
+        changed={ip_info.changed.length}
+        changedLabel="changed"
+      >
+        {ip_info.changed.map((c) => (
+          <Row key={`~${c.ip}`} kind="changed">
+            {c.ip}
+            <span className="mt-1 block space-y-0.5 text-xs">
+              {c.fields.map((f) => (
+                <span key={f.field} className="block">
+                  <span className="text-slate-500">{f.field}: </span>
+                  <span className="text-rose-300/80 line-through">{f.before || "∅"}</span>
+                  <span className="text-slate-500"> → </span>
+                  <span className="text-emerald-300">{f.after || "∅"}</span>
+                </span>
+              ))}
+            </span>
+          </Row>
+        ))}
+        {ip_info.added.map((i) => (
+          <Row key={`+${i.ip}`} kind="added">
+            {i.ip} <IpSummary info={i} />
+          </Row>
+        ))}
+        {ip_info.removed.map((i) => (
+          <Row key={`-${i.ip}`} kind="removed">
+            {i.ip} <IpSummary info={i} />
+          </Row>
+        ))}
+      </Section>
+      {!ip_info.compared && (
+        <p className="px-4 py-3 text-xs text-slate-500">
+          IPDR not compared: scan #{diff.base.id} ran before IP lookups were added.
+        </p>
+      )}
     </div>
   );
+}
+
+function IpSummary({ info }: { info: IpInfo }) {
+  if (info.error) return <span className="text-xs text-amber-400">({info.error})</span>;
+  const org = typeof info.data?.org === "string" ? info.data.org : "";
+  const place = [info.data?.city, info.data?.country].filter((v) => typeof v === "string" && v).join(", ");
+  const text = [org, place].filter(Boolean).join(" · ");
+  return text ? <span className="text-slate-400">({text})</span> : null;
 }
 
 function Section({
@@ -107,6 +157,7 @@ function Section({
   removed,
   changed = 0,
   stale = 0,
+  changedLabel = "replaced",
   children,
 }: {
   title: string;
@@ -114,6 +165,7 @@ function Section({
   removed: number;
   changed?: number;
   stale?: number;
+  changedLabel?: string;
   children: ReactNode;
 }) {
   if (added + removed + changed + stale === 0) return null;
@@ -123,7 +175,11 @@ function Section({
         {title}
         {added > 0 && <Chip tone="emerald">+{added} new</Chip>}
         {removed > 0 && <Chip tone="rose">−{removed} gone</Chip>}
-        {changed > 0 && <Chip tone="amber">{changed} replaced</Chip>}
+        {changed > 0 && (
+          <Chip tone="amber">
+            {changed} {changedLabel}
+          </Chip>
+        )}
         {stale > 0 && <Chip>{stale} no longer reported</Chip>}
       </h4>
       <ul className="space-y-1">{children}</ul>

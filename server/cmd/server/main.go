@@ -49,6 +49,7 @@ func run(logger *slog.Logger) error {
 	scanner := asm.New(asm.Options{
 		SubfinderProviderConfig: os.Getenv("SUBFINDER_PROVIDER_CONFIG"),
 		Resolvers:               envList("DNS_RESOLVERS"),
+		IPInfoToken:             os.Getenv("IPINFO_TOKEN"),
 		Logger:                  logger,
 	})
 	jobs := api.NewJobs(st, scanner, logger,

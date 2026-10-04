@@ -12,15 +12,17 @@ import StatusBadge from "./StatusBadge";
 import SubdomainTable from "./SubdomainTable";
 import DnsTable from "./DnsTable";
 import CertTable from "./CertTable";
+import IpdrTable from "./IpdrTable";
 import ChangesPanel, { changeCount } from "./ChangesPanel";
 
 const STAGES = [
   { key: "subdomains", label: "Subdomains", tool: "subfinder" },
   { key: "dns", label: "DNS", tool: "dnsx" },
+  { key: "ipinfo", label: "IPDR", tool: "ipinfo.io" },
   { key: "tls", label: "TLS", tool: "tlsx" },
 ] as const;
 
-type Tab = "changes" | "subdomains" | "dns" | "tls";
+type Tab = "changes" | "subdomains" | "dns" | "ipdr" | "tls";
 type Compared = Extract<ScanDiff, { base: Scan }>;
 
 interface Props {
@@ -65,6 +67,8 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
         ...(diff?.tls_certs.added.map(certKey) ?? []),
         ...(diff?.tls_certs.changed.map((c) => certKey(c.after)) ?? []),
       ]),
+      ips: new Set(diff?.ip_info.added.map((i) => i.ip)),
+      ipsChanged: new Set(diff?.ip_info.changed.map((c) => c.ip)),
     }),
     [diff],
   );
@@ -160,6 +164,7 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
                 ...(diff ? [["changes", "Changes", changes] as const] : []),
                 ["subdomains", "Subdomains", scan.subdomains.length],
                 ["dns", "DNS records", scan.dns_records.length],
+                ["ipdr", "IPDR", scan.ip_info.length],
                 ["tls", "TLS certificates", scan.tls_certs.length],
               ] as const
             ).map(([key, label, count]) => (
@@ -195,6 +200,12 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
             />
           )}
           {tab === "dns" && <DnsTable records={scan.dns_records} added={added.dns} />}
+          {tab === "ipdr" && <IpdrTable
+              records={scan.ip_info}
+              dns={scan.dns_records}
+              added={added.ips}
+              changed={added.ipsChanged}
+            />}
           {tab === "tls" && <CertTable certs={scan.tls_certs} added={added.certs} />}
         </section>
       )}
@@ -233,7 +244,7 @@ function Stat({
 function Pipeline({ stage }: { stage: string | null }) {
   const current = STAGES.findIndex((s) => s.key === stage);
   return (
-    <ol className="grid grid-cols-3 gap-3">
+    <ol className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {STAGES.map((s, i) => {
         const state =
           current === -1 ? "pending" : i < current ? "done" : i === current ? "active" : "pending";

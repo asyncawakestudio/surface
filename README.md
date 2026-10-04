@@ -6,7 +6,8 @@ Surface is an attack surface management tool. Give it a domain and it:
 
 1. **Enumerates subdomains** with [subfinder](https://github.com/projectdiscovery/subfinder) (passive sources)
 2. **Resolves DNS** with [dnsx](https://github.com/projectdiscovery/dnsx): A, AAAA, CNAME, MX, NS, TXT and CAA
-3. **Grabs TLS certificates** with [tlsx](https://github.com/projectdiscovery/tlsx) from every resolved host on :443
+3. **Looks up every public IP** with [ipinfo.io](https://ipinfo.io) (IPDR: owner, ASN, location, etc.)
+4. **Grabs TLS certificates** with [tlsx](https://github.com/projectdiscovery/tlsx) from every resolved host on :443
 
 The ProjectDiscovery tools are used as Go libraries, not shelled-out binaries. Results are stored in Postgres and shown on a React dashboard.
 
@@ -42,6 +43,7 @@ server/                   Go API
   internal/asm/           scan pipeline: Scanner.Run(ctx, domain, progress)
     subdomains.go         subfinder stage
     dns.go                dnsx stage
+    ipinfo.go             ipinfo.io stage (IPDR)
     tls.go                tlsx stage
   internal/store/         Postgres persistence (pgx) + embedded SQL migrations
   internal/api/           HTTP handlers and background job runner
@@ -81,11 +83,11 @@ res, err := scanner.Run(ctx, asm.Target{
 | GET    | `/api/domains`         | Every scanned domain with its latest scan and scan count       |
 | GET    | `/healthz`             | Liveness + DB check                                           |
 
-Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed`, `failed` or `paused`. While running, `stage` is `subdomains`, `dns` or `tls`.
+Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed`, `failed` or `paused`. While running, `stage` is `subdomains`, `dns`, `ipinfo` or `tls`.
 
 Scans are never deleted: each domain keeps its full history.
 
-Subdomains are append-only. Each scan starts with every subdomain found by the domain's earlier completed scans, then adds whatever subfinder finds now. Hosts that no source reported this time are kept with `carried_over: true` and the sources that reported them before. They still go through DNS and TLS, so a host that stopped resolving shows up as unresolved instead of vanishing. Because a subdomain never disappears, the diff reports `no_longer_reported` (found by sources last scan, carried over now) instead of `removed`. To rescan a domain, POST it again. The diff compares subdomains by host, DNS records by host+type+value, and certificates by `host:port`. A certificate with a new fingerprint counts as replaced. The tools can't resume partway through a stage, so a paused scan is continued by starting a new one.
+Subdomains are append-only. Each scan starts with every subdomain found by the domain's earlier completed scans, then adds whatever subfinder finds now. Hosts that no source reported this time are kept with `carried_over: true` and the sources that reported them before. They still go through DNS and TLS, so a host that stopped resolving shows up as unresolved instead of vanishing. Because a subdomain never disappears, the diff reports `no_longer_reported` (found by sources last scan, carried over now) instead of `removed`. To rescan a domain, POST it again. The diff compares subdomains by host, DNS records by host+type+value, and certificates by `host:port`. A certificate with a new fingerprint counts as replaced. IPDR data is compared by IP: new and gone IPs, plus every ipinfo field whose value changed for an IP in both scans (e.g. `org` or `asn.asn` when an IP changes owner). Failed lookups are never compared. If the previous scan ran before IP lookups existed, `ip_info.compared` is `false` instead of listing every IP as new. The tools can't resume partway through a stage, so a paused scan is continued by starting a new one.
 
 ## Database
 
@@ -95,6 +97,7 @@ Subdomains are append-only. Each scan starts with every subdomain found by the d
 | `subdomains`       | host, the passive sources that reported it, and `carried_over` |
 | `dns_records`      | host, record type, value                        |
 | `tls_certificates` | subject, SANs, issuer, validity, flags, SHA-256 |
+| `ip_info`          | IPDR: the raw ipinfo.io JSON response per public IP (JSONB), or the lookup error |
 
 Migrations in `server/internal/store/migrations` are embedded and applied once each at startup; applied versions are tracked in `schema_migrations`.
 
@@ -108,7 +111,10 @@ Migrations in `server/internal/store/migrations` are embedded and applied once e
 | `SCAN_TIMEOUT_MINUTES`      | `30`    | Hard limit per scan                       |
 | `SUBFINDER_PROVIDER_CONFIG` | —       | Path to subfinder API keys (see below)    |
 | `DNS_RESOLVERS`             | —       | Comma-separated resolvers, e.g. `udp:1.1.1.1:53,tcp:8.8.8.8:53`. When unset, dnsx's public resolvers are used, falling back to the system resolver if they're unreachable |
+| `IPINFO_TOKEN`              | —       | ipinfo.io API token. Optional; without it the free tier's lower rate limits apply. Compose reads it from your shell or `devops/.env` |
 | `STATIC_DIR`                | —       | Serve the built client from this directory (set in the prod image) |
+
+Only globally routable IPs are sent to ipinfo.io: private, loopback, CGNAT and documentation ranges are skipped. A failed lookup (e.g. HTTP 429 when rate limited) is recorded on that IP and doesn't fail the scan. The IPDR tab builds its columns from whatever fields the response contains, so paid-plan fields such as `asn`, `company` or `privacy` show up automatically (flattened as `asn.name` etc.), and each row expands to the raw JSON.
 
 Without API keys, subfinder uses only free sources. To add keys, copy `devops/config/subfinder/provider-config.example.yaml` to `provider-config.yaml` in the same folder. Compose mounts `devops/config` into the API container.
 
