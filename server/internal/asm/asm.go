@@ -2,7 +2,7 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipinfo (ipinfo.io) -> tls (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipinfo (ipinfo.io) -> ports (naabu) -> tls (tlsx)
 //
 // Port scanning and service enumeration will slot in after the DNS stage,
 // since they need resolved hosts as input.
@@ -29,6 +29,7 @@ const (
 	StageSubdomains Stage = "subdomains"
 	StageDNS        Stage = "dns"
 	StageIPInfo     Stage = "ipinfo"
+	StagePorts      Stage = "ports"
 	StageTLS        Stage = "tls"
 )
 
@@ -89,6 +90,7 @@ type Result struct {
 	DNSRecords []DNSRecord `json:"dns_records"`
 	TLSCerts   []TLSCert   `json:"tls_certs"`
 	IPInfo     []IPInfo    `json:"ip_info"`
+	PortScans  []PortScan  `json:"port_scans"`
 }
 
 // Options tunes the scanner. Zero values fall back to defaults.
@@ -119,6 +121,19 @@ type Options struct {
 	IPInfoConcurrency int
 	// HTTPClient is used for ipinfo lookups.
 	HTTPClient *http.Client
+	// PortScan enables the naabu port-scanning stage. A full SYN scan of all
+	// TCP ports is heavy and needs raw-socket privileges, so it is opt-in.
+	PortScan bool
+	// PortScanPorts is the naabu port spec; "-" means all 65535 TCP ports.
+	PortScanPorts string
+	// PortScanRate is packets per second.
+	PortScanRate int
+	// PortScanRetries is the per-port retry count.
+	PortScanRetries int
+	// PortScanThreads is naabu's worker count.
+	PortScanThreads int
+	// PortScanTimeout is the per-port timeout.
+	PortScanTimeout time.Duration
 	// Logger receives stage diagnostics. Defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -144,6 +159,21 @@ func (o Options) withDefaults() Options {
 	}
 	if o.IPInfoConcurrency <= 0 {
 		o.IPInfoConcurrency = 8
+	}
+	if o.PortScanPorts == "" {
+		o.PortScanPorts = "-" // all 65535 TCP ports
+	}
+	if o.PortScanRate <= 0 {
+		o.PortScanRate = 1000
+	}
+	if o.PortScanRetries <= 0 {
+		o.PortScanRetries = 3
+	}
+	if o.PortScanThreads <= 0 {
+		o.PortScanThreads = 25
+	}
+	if o.PortScanTimeout <= 0 {
+		o.PortScanTimeout = time.Second
 	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = &http.Client{Timeout: 10 * time.Second}
@@ -202,8 +232,16 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		return nil, fmt.Errorf("ip lookup: %w", err)
 	}
 
-	// TODO: port scanning + service enumeration go here, feeding open ports
-	// into the TLS stage instead of the static TLSPorts list.
+	if s.opts.PortScan {
+		progress(StagePorts)
+		res.PortScans, err = s.scanPorts(ctx, resolved)
+		if err != nil {
+			return nil, fmt.Errorf("port scanning: %w", err)
+		}
+	}
+
+	// TODO: service enumeration goes here, and discovered open ports can feed
+	// the TLS stage instead of the static TLSPorts list.
 
 	progress(StageTLS)
 	res.TLSCerts, err = s.grabCerts(ctx, resolved)

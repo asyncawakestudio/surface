@@ -6,6 +6,7 @@ export interface Counts {
   dns_records: number;
   tls_certs: number;
   ip_addresses: number;
+  open_ports: number;
 }
 
 export interface Scan {
@@ -60,6 +61,18 @@ export interface TlsCert {
   fingerprint_sha256: string;
 }
 
+export interface OpenPort {
+  port: number;
+  protocol: string;
+}
+
+/** naabu port-scan result for one IPv4 address. */
+export interface PortScan {
+  ip: string;
+  hosts: string[];
+  ports: OpenPort[];
+}
+
 /** IPDR: the ipinfo.io response for one IP, or the error if the lookup failed. */
 export interface IpInfo {
   ip: string;
@@ -72,6 +85,7 @@ export interface ScanDetail extends Scan {
   dns_records: DnsRecord[];
   tls_certs: TlsCert[];
   ip_info: IpInfo[];
+  port_scans: PortScan[];
 }
 
 export interface SetDiff<T> {

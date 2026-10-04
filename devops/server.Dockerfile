@@ -1,6 +1,9 @@
 # Build context: repository root (see compose.yaml).
 FROM golang:1.26-alpine AS base
 WORKDIR /app
+# libpcap is loaded at runtime (via dlopen) by naabu's SYN scanner; the Alpine
+# dev image runs the freshly built binary, so it needs the musl build of it.
+RUN apk add --no-cache libpcap
 COPY server/go.mod server/go.sum ./
 # Not a cache mount: the modules must live in the image layer so the dev
 # go-mod-cache volume is seeded from them on first `compose up`.
@@ -26,10 +29,20 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 COPY client/ .
 RUN npm run build
 
+# ---- libs: glibc libpcap for the prod runtime ----
+FROM debian:12-slim AS libs
+RUN apt-get update && apt-get install -y --no-install-recommends libpcap0.8 \
+    && rm -rf /var/lib/apt/lists/*
+
 # ---- prod: minimal runtime ----
-FROM gcr.io/distroless/static-debian12:nonroot AS prod
+# distroless/base (not static) ships glibc, which the dlopen'd libpcap needs.
+FROM gcr.io/distroless/base-debian12:nonroot AS prod
 COPY --from=build /out/server /server
 COPY --from=client /client/dist /public
+# naabu dlopens libpcap.so / .so.1 / .so.0.8 at runtime for the SYN scan.
+COPY --from=libs /usr/lib/x86_64-linux-gnu/libpcap.so.0.8 /usr/lib/x86_64-linux-gnu/libpcap.so.0.8
+COPY --from=libs /usr/lib/x86_64-linux-gnu/libpcap.so.0.8 /usr/lib/x86_64-linux-gnu/libpcap.so.1
+COPY --from=libs /usr/lib/x86_64-linux-gnu/libpcap.so.0.8 /usr/lib/x86_64-linux-gnu/libpcap.so
 ENV STATIC_DIR=/public
 EXPOSE 8080
 USER nonroot:nonroot

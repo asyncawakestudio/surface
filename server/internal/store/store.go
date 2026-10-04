@@ -58,6 +58,7 @@ type Counts struct {
 	DNSRecords    int `json:"dns_records"`
 	TLSCerts      int `json:"tls_certs"`
 	IPAddresses   int `json:"ip_addresses"`
+	OpenPorts     int `json:"open_ports"`
 }
 
 // ScanDetail is a scan with its full results.
@@ -67,11 +68,12 @@ type ScanDetail struct {
 	DNSRecords []asm.DNSRecord `json:"dns_records"`
 	TLSCerts   []asm.TLSCert   `json:"tls_certs"`
 	IPInfo     []asm.IPInfo    `json:"ip_info"`
+	PortScans  []asm.PortScan  `json:"port_scans"`
 }
 
 // Result returns the scan's results in the scanner's format.
 func (d *ScanDetail) Result() *asm.Result {
-	return &asm.Result{Domain: d.Domain, Subdomains: d.Subdomains, DNSRecords: d.DNSRecords, TLSCerts: d.TLSCerts, IPInfo: d.IPInfo}
+	return &asm.Result{Domain: d.Domain, Subdomains: d.Subdomains, DNSRecords: d.DNSRecords, TLSCerts: d.TLSCerts, IPInfo: d.IPInfo, PortScans: d.PortScans}
 }
 
 type Store struct {
@@ -254,6 +256,31 @@ func (s *Store) SaveResult(ctx context.Context, id int64, res *asm.Result) error
 				return []any{id, info.IP, data, errMsg}, nil
 			})); err != nil {
 			return fmt.Errorf("insert ip info: %w", err)
+		}
+
+		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"port_scan_targets"},
+			[]string{"scan_id", "ip", "hosts"},
+			pgx.CopyFromSlice(len(res.PortScans), func(i int) ([]any, error) {
+				ps := res.PortScans[i]
+				return []any{id, ps.IP, nonNil(ps.Hosts)}, nil
+			})); err != nil {
+			return fmt.Errorf("insert port scan targets: %w", err)
+		}
+
+		var openPorts []asm.OpenPort
+		var portIPs []string
+		for _, ps := range res.PortScans {
+			for _, p := range ps.Ports {
+				openPorts = append(openPorts, p)
+				portIPs = append(portIPs, ps.IP)
+			}
+		}
+		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"open_ports"},
+			[]string{"scan_id", "ip", "port", "protocol"},
+			pgx.CopyFromSlice(len(openPorts), func(i int) ([]any, error) {
+				return []any{id, portIPs[i], openPorts[i].Port, openPorts[i].Protocol}, nil
+			})); err != nil {
+			return fmt.Errorf("insert open ports: %w", err)
 		}
 
 		_, err := tx.Exec(ctx,
@@ -444,7 +471,52 @@ func (s *Store) GetScan(ctx context.Context, id int64) (*ScanDetail, error) {
 		return nil, err
 	}
 
+	d.PortScans, err = s.portScans(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
 	return d, nil
+}
+
+// portScans reconstructs per-IP open-port results for a scan.
+func (s *Store) portScans(ctx context.Context, id int64) ([]asm.PortScan, error) {
+	targets, err := collect(ctx, s.pool,
+		`SELECT ip, hosts FROM port_scan_targets WHERE scan_id = $1 ORDER BY ip`, id,
+		func(r pgx.Rows) (asm.PortScan, error) {
+			var v asm.PortScan
+			return v, r.Scan(&v.IP, &v.Hosts)
+		})
+	if err != nil {
+		return nil, err
+	}
+	if len(targets) == 0 {
+		return nil, nil
+	}
+
+	byIP := make(map[string]*asm.PortScan, len(targets))
+	for i := range targets {
+		targets[i].Ports = []asm.OpenPort{}
+		byIP[targets[i].IP] = &targets[i]
+	}
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT ip, port, protocol FROM open_ports WHERE scan_id = $1 ORDER BY ip, port`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ip string
+		var op asm.OpenPort
+		if err := rows.Scan(&ip, &op.Port, &op.Protocol); err != nil {
+			return nil, err
+		}
+		if ps, ok := byIP[ip]; ok {
+			ps.Ports = append(ps.Ports, op)
+		}
+	}
+	return targets, rows.Err()
 }
 
 const scanColumns = `id, domain, status, stage, error, created_at, started_at, finished_at,
@@ -452,14 +524,15 @@ const scanColumns = `id, domain, status, stage, error, created_at, started_at, f
 	(SELECT count(DISTINCT host) FROM dns_records d WHERE d.scan_id = scans.id AND d.record_type IN ('A', 'AAAA')) AS resolved_count,
 	(SELECT count(*) FROM dns_records d WHERE d.scan_id = scans.id) AS dns_record_count,
 	(SELECT count(*) FROM tls_certificates t WHERE t.scan_id = scans.id) AS tls_cert_count,
-	(SELECT count(*) FROM ip_info i WHERE i.scan_id = scans.id) AS ip_count`
+	(SELECT count(*) FROM ip_info i WHERE i.scan_id = scans.id) AS ip_count,
+	(SELECT count(*) FROM open_ports o WHERE o.scan_id = scans.id) AS open_port_count`
 
 func scanRow(row pgx.Row) (*Scan, error) {
 	var sc Scan
 	err := row.Scan(&sc.ID, &sc.Domain, &sc.Status, &sc.Stage, &sc.Error,
 		&sc.CreatedAt, &sc.StartedAt, &sc.FinishedAt,
 		&sc.Counts.Subdomains, &sc.Counts.ResolvedHosts, &sc.Counts.DNSRecords, &sc.Counts.TLSCerts,
-		&sc.Counts.IPAddresses)
+		&sc.Counts.IPAddresses, &sc.Counts.OpenPorts)
 	if err != nil {
 		return nil, err
 	}

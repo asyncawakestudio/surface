@@ -7,6 +7,8 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/miekg/dns v1.1.73
 	github.com/projectdiscovery/dnsx v1.3.1
+	github.com/projectdiscovery/goflags v0.1.76
+	github.com/projectdiscovery/naabu/v2 v2.6.1
 	github.com/projectdiscovery/subfinder/v2 v2.16.0
 	github.com/projectdiscovery/tlsx v1.4.0
 )
@@ -16,6 +18,8 @@ require (
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/Mzack9999/gcache v0.0.0-20230410081825-519e28eab057 // indirect
 	github.com/Mzack9999/go-http-digest-auth-client v0.6.1-0.20220414142836-eb8883508809 // indirect
+	github.com/Mzack9999/gopacket v0.0.0-20260327212258-d211b432c22b // indirect
+	github.com/Ullaakut/nmap/v3 v3.0.6 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/akrylysov/pogreb v0.10.1 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
@@ -69,20 +73,26 @@ require (
 	github.com/muesli/termenv v0.15.3-0.20240618155329-98d742f6907a // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
+	github.com/projectdiscovery/asnmap v1.1.1 // indirect
 	github.com/projectdiscovery/blackrock v0.0.2 // indirect
 	github.com/projectdiscovery/cdncheck v1.2.50 // indirect
 	github.com/projectdiscovery/chaos-client v0.5.2 // indirect
+	github.com/projectdiscovery/clistats v0.1.6 // indirect
 	github.com/projectdiscovery/fastdialer v0.5.18 // indirect
-	github.com/projectdiscovery/goflags v0.1.76 // indirect
+	github.com/projectdiscovery/freeport v0.0.7 // indirect
 	github.com/projectdiscovery/gologger v1.1.72 // indirect
 	github.com/projectdiscovery/hmap v0.0.102 // indirect
+	github.com/projectdiscovery/ipranger v0.0.53 // indirect
 	github.com/projectdiscovery/machineid v0.0.0-20250715113114-c77eb3567582 // indirect
+	github.com/projectdiscovery/mapcidr v1.1.97 // indirect
 	github.com/projectdiscovery/networkpolicy v0.1.48 // indirect
 	github.com/projectdiscovery/ratelimit v0.0.88 // indirect
 	github.com/projectdiscovery/retryabledns v1.0.116 // indirect
 	github.com/projectdiscovery/retryablehttp-go v1.3.24 // indirect
+	github.com/projectdiscovery/uncover v1.2.0 // indirect
 	github.com/projectdiscovery/utils v0.11.2 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
+	github.com/remeh/sizedwaitgroup v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
@@ -100,6 +110,7 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/tomnomnom/linkheader v0.0.0-20180905144013-02ca5825eb80 // indirect
 	github.com/weppos/publicsuffix-go v0.50.3-0.20260104170930-90713dec78f2 // indirect
+	github.com/yl2chen/cidranger v1.0.2 // indirect
 	github.com/yuin/goldmark v1.7.4 // indirect
 	github.com/yuin/goldmark-emoji v1.0.3 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect

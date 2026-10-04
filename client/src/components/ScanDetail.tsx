@@ -13,16 +13,18 @@ import SubdomainTable from "./SubdomainTable";
 import DnsTable from "./DnsTable";
 import CertTable from "./CertTable";
 import IpdrTable from "./IpdrTable";
+import PortsTable from "./PortsTable";
 import ChangesPanel, { changeCount } from "./ChangesPanel";
 
 const STAGES = [
   { key: "subdomains", label: "Subdomains", tool: "subfinder" },
   { key: "dns", label: "DNS", tool: "dnsx" },
   { key: "ipinfo", label: "IPDR", tool: "ipinfo.io" },
+  { key: "ports", label: "Ports", tool: "naabu" },
   { key: "tls", label: "TLS", tool: "tlsx" },
 ] as const;
 
-type Tab = "changes" | "subdomains" | "dns" | "ipdr" | "tls";
+type Tab = "changes" | "subdomains" | "dns" | "ipdr" | "ports" | "tls";
 type Compared = Extract<ScanDiff, { base: Scan }>;
 
 interface Props {
@@ -165,6 +167,7 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
                 ["subdomains", "Subdomains", scan.subdomains.length],
                 ["dns", "DNS records", scan.dns_records.length],
                 ["ipdr", "IPDR", scan.ip_info.length],
+                ["ports", "Open ports", scan.port_scans.reduce((n, p) => n + p.ports.length, 0)],
                 ["tls", "TLS certificates", scan.tls_certs.length],
               ] as const
             ).map(([key, label, count]) => (
@@ -206,6 +209,7 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
               added={added.ips}
               changed={added.ipsChanged}
             />}
+          {tab === "ports" && <PortsTable scans={scan.port_scans} />}
           {tab === "tls" && <CertTable certs={scan.tls_certs} added={added.certs} />}
         </section>
       )}
@@ -244,7 +248,7 @@ function Stat({
 function Pipeline({ stage }: { stage: string | null }) {
   const current = STAGES.findIndex((s) => s.key === stage);
   return (
-    <ol className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <ol className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {STAGES.map((s, i) => {
         const state =
           current === -1 ? "pending" : i < current ? "done" : i === current ? "active" : "pending";

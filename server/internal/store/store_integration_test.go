@@ -44,8 +44,8 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 	if err := s.pool.QueryRow(context.Background(), `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 5 {
-		t.Fatalf("schema_migrations rows = %d, want 5", n)
+	if n != 6 {
+		t.Fatalf("schema_migrations rows = %d, want 6", n)
 	}
 }
 
@@ -210,6 +210,41 @@ func TestIPInfoRoundTrip(t *testing.T) {
 	must(t, s.pool.QueryRow(ctx, `SELECT count(*) FROM ip_info WHERE data IS NULL`).Scan(&nulls))
 	if nulls != 1 {
 		t.Fatalf("SQL NULL data rows = %d, want 1 (not JSON null)", nulls)
+	}
+}
+
+func TestPortScanRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sc, err := s.CreateScan(ctx, "example.com")
+	must(t, err)
+	must(t, s.SaveResult(ctx, sc.ID, &asm.Result{PortScans: []asm.PortScan{
+		{IP: "93.184.215.14", Hosts: []string{"a.example.com", "b.example.com"}, Ports: []asm.OpenPort{
+			{Port: 80, Protocol: "tcp"}, {Port: 443, Protocol: "tcp"},
+		}},
+		{IP: "10.0.0.1", Hosts: []string{"c.example.com"}, Ports: []asm.OpenPort{}}, // scanned, no open ports
+	}}))
+
+	d, err := s.GetScan(ctx, sc.ID)
+	must(t, err)
+	if d.Counts.OpenPorts != 2 {
+		t.Fatalf("open port count = %d, want 2", d.Counts.OpenPorts)
+	}
+	if len(d.PortScans) != 2 {
+		t.Fatalf("port scans = %d, want 2", len(d.PortScans))
+	}
+	first := d.PortScans[0] // ordered by ip: 10.0.0.1 < 93.184...
+	if first.IP != "10.0.0.1" || len(first.Ports) != 0 || len(first.Hosts) != 1 {
+		t.Fatalf("no-open-ports target not preserved: %+v", first)
+	}
+	second := d.PortScans[1]
+	if second.IP != "93.184.215.14" || len(second.Ports) != 2 ||
+		second.Ports[0].Port != 80 || second.Ports[1].Port != 443 {
+		t.Fatalf("open ports = %+v", second.Ports)
+	}
+	if strings.Join(second.Hosts, ",") != "a.example.com,b.example.com" {
+		t.Fatalf("hosts = %v", second.Hosts)
 	}
 }
 

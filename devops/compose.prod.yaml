@@ -22,11 +22,16 @@ services:
       context: ..
       dockerfile: devops/server.Dockerfile
       target: prod
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
     environment:
       DATABASE_URL: postgres://surface:${POSTGRES_PASSWORD:-surface}@db:5432/surface?sslmode=disable
       SUBFINDER_PROVIDER_CONFIG: /config/subfinder/provider-config.yaml
       # Optional ipinfo.io token (set in your shell or devops/.env).
       IPINFO_TOKEN: ${IPINFO_TOKEN:-}
+      # Port scanning (naabu). Set PORT_SCAN=false to skip the stage.
+      PORT_SCAN: ${PORT_SCAN:-true}
     ports:
       - "8080:8080"
     volumes:

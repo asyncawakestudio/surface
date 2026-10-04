@@ -50,6 +50,7 @@ func run(logger *slog.Logger) error {
 		SubfinderProviderConfig: os.Getenv("SUBFINDER_PROVIDER_CONFIG"),
 		Resolvers:               envList("DNS_RESOLVERS"),
 		IPInfoToken:             os.Getenv("IPINFO_TOKEN"),
+		PortScan:                envBool("PORT_SCAN", true),
 		Logger:                  logger,
 	})
 	jobs := api.NewJobs(st, scanner, logger,
@@ -108,6 +109,17 @@ func envInt(key string, def int) int {
 		return n
 	}
 	return def
+}
+
+func envBool(key string, def bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
 }
 
 func envList(key string) []string {
