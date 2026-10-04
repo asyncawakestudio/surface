@@ -40,6 +40,12 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
   const [tab, setTab] = useState<Tab>("subdomains");
   const [busy, setBusy] = useState(false);
 
+  // Older scans (and scans run with port scanning off) may omit these arrays,
+  // which the API then serializes as null. Normalize so rendering never hits
+  // a null .reduce / .length / .map.
+  const portScans = scan.port_scans ?? [];
+  const ipInfo = scan.ip_info ?? [];
+
   // Open on the changes when there are any, once per scan.
   const changes = diff ? changeCount(diff) : 0;
   useEffect(() => {
@@ -69,7 +75,7 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
         ...(diff?.tls_certs.added.map(certKey) ?? []),
         ...(diff?.tls_certs.changed.map((c) => certKey(c.after)) ?? []),
       ]),
-      ips: new Set(diff?.ip_info.added.map((i) => i.ip)),
+      ips: new Set(diff?.ip_info.added.map((i) => i.ip)),  // diff arrays are always present
       ipsChanged: new Set(diff?.ip_info.changed.map((c) => c.ip)),
     }),
     [diff],
@@ -166,8 +172,8 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
                 ...(diff ? [["changes", "Changes", changes] as const] : []),
                 ["subdomains", "Subdomains", scan.subdomains.length],
                 ["dns", "DNS records", scan.dns_records.length],
-                ["ipdr", "IPDR", scan.ip_info.length],
-                ["ports", "Open ports", scan.port_scans.reduce((n, p) => n + p.ports.length, 0)],
+                ["ipdr", "IPDR", ipInfo.length],
+                ["ports", "Open ports", portScans.reduce((n, p) => n + p.ports.length, 0)],
                 ["tls", "TLS certificates", scan.tls_certs.length],
               ] as const
             ).map(([key, label, count]) => (
@@ -204,12 +210,12 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
           )}
           {tab === "dns" && <DnsTable records={scan.dns_records} added={added.dns} />}
           {tab === "ipdr" && <IpdrTable
-              records={scan.ip_info}
+              records={ipInfo}
               dns={scan.dns_records}
               added={added.ips}
               changed={added.ipsChanged}
             />}
-          {tab === "ports" && <PortsTable scans={scan.port_scans} />}
+          {tab === "ports" && <PortsTable scans={portScans} />}
           {tab === "tls" && <CertTable certs={scan.tls_certs} added={added.certs} />}
         </section>
       )}

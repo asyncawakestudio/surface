@@ -9,10 +9,10 @@ import (
 func TestIPv4Hosts(t *testing.T) {
 	hosts := []resolvedHost{
 		{Host: "a.example.com", IPs: []string{"93.184.215.14", "2606:2800::1"}},
-		{Host: "b.example.com", IPs: []string{"93.184.215.14"}},           // shared IPv4
-		{Host: "c.example.com", IPs: []string{"2606:2800::2"}},            // IPv6 only -> skipped
-		{Host: "d.example.com", IPs: []string{"10.0.0.1", "not-an-ip"}},   // private kept, junk skipped
-		{Host: "a.example.com", IPs: []string{"93.184.215.14"}},          // duplicate host+ip
+		{Host: "b.example.com", IPs: []string{"93.184.215.14"}},         // shared IPv4
+		{Host: "c.example.com", IPs: []string{"2606:2800::2"}},          // IPv6 only -> skipped
+		{Host: "d.example.com", IPs: []string{"10.0.0.1", "not-an-ip"}}, // private kept, junk skipped
+		{Host: "a.example.com", IPs: []string{"93.184.215.14"}},         // duplicate host+ip
 	}
 	got := ipv4Hosts(hosts)
 

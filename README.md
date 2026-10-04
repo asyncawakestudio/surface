@@ -7,7 +7,8 @@ Surface is an attack surface management tool. Give it a domain and it:
 1. **Enumerates subdomains** with [subfinder](https://github.com/projectdiscovery/subfinder) (passive sources)
 2. **Resolves DNS** with [dnsx](https://github.com/projectdiscovery/dnsx): A, AAAA, CNAME, MX, NS, TXT and CAA
 3. **Looks up every public IP** with [ipinfo.io](https://ipinfo.io) (IPDR: owner, ASN, location, etc.)
-4. **Grabs TLS certificates** with [tlsx](https://github.com/projectdiscovery/tlsx) from every resolved host on :443
+4. **Scans ports** with [naabu](https://github.com/projectdiscovery/naabu): a half-open SYN scan of all TCP ports on each IPv4 address
+5. **Grabs TLS certificates** with [tlsx](https://github.com/projectdiscovery/tlsx) from every resolved host on :443
 
 The ProjectDiscovery tools are used as Go libraries, not shelled-out binaries. Results are stored in Postgres and shown on a React dashboard.
 
@@ -44,6 +45,7 @@ server/                   Go API
     subdomains.go         subfinder stage
     dns.go                dnsx stage
     ipinfo.go             ipinfo.io stage (IPDR)
+    ports.go              naabu port-scan stage
     tls.go                tlsx stage
   internal/store/         Postgres persistence (pgx) + embedded SQL migrations
   internal/api/           HTTP handlers and background job runner
@@ -83,7 +85,7 @@ res, err := scanner.Run(ctx, asm.Target{
 | GET    | `/api/domains`         | Every scanned domain with its latest scan and scan count       |
 | GET    | `/healthz`             | Liveness + DB check                                           |
 
-Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed`, `failed` or `paused`. While running, `stage` is `subdomains`, `dns`, `ipinfo` or `tls`.
+Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed`, `failed` or `paused`. While running, `stage` is `subdomains`, `dns`, `ipinfo`, `ports` or `tls`.
 
 Scans are never deleted: each domain keeps its full history.
 
@@ -98,6 +100,8 @@ Subdomains are append-only. Each scan starts with every subdomain found by the d
 | `dns_records`      | host, record type, value                        |
 | `tls_certificates` | subject, SANs, issuer, validity, flags, SHA-256 |
 | `ip_info`          | IPDR: the raw ipinfo.io JSON response per public IP (JSONB), or the lookup error |
+| `port_scan_targets`| one row per scanned IPv4 address, with the hosts that resolved to it |
+| `open_ports`       | one row per open port found (ip, port, protocol) |
 
 Migrations in `server/internal/store/migrations` are embedded and applied once each at startup; applied versions are tracked in `schema_migrations`.
 
@@ -112,9 +116,12 @@ Migrations in `server/internal/store/migrations` are embedded and applied once e
 | `SUBFINDER_PROVIDER_CONFIG` | —       | Path to subfinder API keys (see below)    |
 | `DNS_RESOLVERS`             | —       | Comma-separated resolvers, e.g. `udp:1.1.1.1:53,tcp:8.8.8.8:53`. When unset, dnsx's public resolvers are used, falling back to the system resolver if they're unreachable |
 | `IPINFO_TOKEN`              | —       | ipinfo.io API token. Optional; without it the free tier's lower rate limits apply. Compose reads it from your shell or `devops/.env` |
+| `PORT_SCAN`                 | `true`  | Run the naabu port-scan stage. A half-open SYN scan needs the `NET_RAW` capability (compose grants it); otherwise naabu falls back to a TCP connect scan |
 | `STATIC_DIR`                | —       | Serve the built client from this directory (set in the prod image) |
 
 Only globally routable IPs are sent to ipinfo.io: private, loopback, CGNAT and documentation ranges are skipped. A failed lookup (e.g. HTTP 429 when rate limited) is recorded on that IP and doesn't fail the scan. The IPDR tab builds its columns from whatever fields the response contains, so paid-plan fields such as `asn`, `company` or `privacy` show up automatically (flattened as `asn.name` etc.), and each row expands to the raw JSON.
+
+The port-scan stage runs a half-open SYN scan (naabu) of all 65535 TCP ports on each **IPv4** address the DNS stage resolved; IPv6 is skipped. A SYN scan sends raw packets, so the container is granted the `NET_RAW` and `NET_ADMIN` capabilities in `devops/compose.yaml`; without them naabu automatically falls back to a slower TCP connect scan. naabu loads `libpcap` at runtime, so both the dev (Alpine) and prod (distroless) images ship it. Set `PORT_SCAN=false` to skip the stage. Only scan hosts you are authorized to test.
 
 Without API keys, subfinder uses only free sources. To add keys, copy `devops/config/subfinder/provider-config.example.yaml` to `provider-config.yaml` in the same folder. Compose mounts `devops/config` into the API container.
 

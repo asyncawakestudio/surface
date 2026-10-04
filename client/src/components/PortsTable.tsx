@@ -26,6 +26,7 @@ const SERVICES: Record<number, string> = {
 };
 
 export default function PortsTable({ scans }: { scans: PortScan[] }) {
+  scans = scans ?? [];
   const [query, setQuery] = useState("");
   const [openOnly, setOpenOnly] = useState(true);
 

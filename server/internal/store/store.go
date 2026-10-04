@@ -491,7 +491,7 @@ func (s *Store) portScans(ctx context.Context, id int64) ([]asm.PortScan, error)
 		return nil, err
 	}
 	if len(targets) == 0 {
-		return nil, nil
+		return []asm.PortScan{}, nil
 	}
 
 	byIP := make(map[string]*asm.PortScan, len(targets))
