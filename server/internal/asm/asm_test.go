@@ -2,6 +2,7 @@ package asm
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -64,5 +65,43 @@ func TestForEachStopsOnCancel(t *testing.T) {
 	forEach(ctx, make([]int, 100), 1, func(int, int) { calls.Add(1) })
 	if calls.Load() != 0 {
 		t.Fatalf("calls = %d after cancel, want 0", calls.Load())
+	}
+}
+
+func TestMergeSubdomains(t *testing.T) {
+	found := []Subdomain{
+		{Host: "www.example.com", Sources: []string{"crtsh"}},
+		{Host: "api.example.com", Sources: []string{"anubis"}},
+	}
+	known := []Subdomain{
+		{Host: "www.example.com", Sources: []string{"virustotal"}}, // found again: keep this scan's sources
+		{Host: "old.example.com", Sources: []string{"hackertarget"}},
+		{Host: "example.com", Sources: []string{"input"}},
+		{Host: "evil.com"},        // not under the domain
+		{Host: "notexample.com"},  // suffix but not a subdomain
+		{Host: "old.example.com"}, // duplicate
+	}
+	got := mergeSubdomains("example.com", found, known)
+
+	want := []Subdomain{
+		{Host: "api.example.com", Sources: []string{"anubis"}},
+		{Host: "example.com", Sources: []string{"input"}, CarriedOver: true},
+		{Host: "old.example.com", Sources: []string{"hackertarget"}, CarriedOver: true},
+		{Host: "www.example.com", Sources: []string{"crtsh"}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d subdomains, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].Host != want[i].Host || got[i].CarriedOver != want[i].CarriedOver ||
+			strings.Join(got[i].Sources, ",") != strings.Join(want[i].Sources, ",") {
+			t.Errorf("[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	// Mutating the result must not touch the caller's slices.
+	got[2].Sources[0] = "x"
+	if known[1].Sources[0] != "hackertarget" {
+		t.Fatal("merge aliased the known subdomain's sources")
 	}
 }

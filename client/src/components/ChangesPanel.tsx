@@ -9,6 +9,7 @@ export function changeCount(d: Compared): number {
   return (
     d.subdomains.added.length +
     d.subdomains.removed.length +
+    d.subdomains.no_longer_reported.length +
     d.dns_records.added.length +
     d.dns_records.removed.length +
     d.tls_certs.added.length +
@@ -30,7 +31,12 @@ export default function ChangesPanel({ diff }: { diff: Compared }) {
 
   return (
     <div className="divide-y divide-slate-800">
-      <Section title="Subdomains" added={subdomains.added.length} removed={subdomains.removed.length}>
+      <Section
+        title="Subdomains"
+        added={subdomains.added.length}
+        removed={subdomains.removed.length}
+        stale={subdomains.no_longer_reported.length}
+      >
         {subdomains.added.map((s) => (
           <Row key={`+${s.host}`} kind="added">
             {s.host}
@@ -39,6 +45,14 @@ export default function ChangesPanel({ diff }: { diff: Compared }) {
         {subdomains.removed.map((s) => (
           <Row key={`-${s.host}`} kind="removed">
             {s.host}
+          </Row>
+        ))}
+        {subdomains.no_longer_reported.map((s) => (
+          <Row key={`?${s.host}`} kind="stale">
+            {s.host}{" "}
+            <span className="text-xs text-slate-500">
+              no source reported it this scan (kept, last seen via {s.sources.join(", ") || "unknown"})
+            </span>
           </Row>
         ))}
       </Section>
@@ -92,15 +106,17 @@ function Section({
   added,
   removed,
   changed = 0,
+  stale = 0,
   children,
 }: {
   title: string;
   added: number;
   removed: number;
   changed?: number;
+  stale?: number;
   children: ReactNode;
 }) {
-  if (added + removed + changed === 0) return null;
+  if (added + removed + changed + stale === 0) return null;
   return (
     <section className="px-4 py-4">
       <h4 className="mb-2 flex items-center gap-2 text-sm font-medium text-white">
@@ -108,6 +124,7 @@ function Section({
         {added > 0 && <Chip tone="emerald">+{added} new</Chip>}
         {removed > 0 && <Chip tone="rose">−{removed} gone</Chip>}
         {changed > 0 && <Chip tone="amber">{changed} replaced</Chip>}
+        {stale > 0 && <Chip>{stale} no longer reported</Chip>}
       </h4>
       <ul className="space-y-1">{children}</ul>
     </section>
@@ -118,6 +135,7 @@ const marks = {
   added: { sign: "+", color: "text-emerald-400" },
   removed: { sign: "−", color: "text-rose-400" },
   changed: { sign: "~", color: "text-amber-400" },
+  stale: { sign: "?", color: "text-slate-500" },
 };
 
 function Row({ kind, children }: { kind: keyof typeof marks; children: ReactNode }) {

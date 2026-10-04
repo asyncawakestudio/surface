@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -36,6 +37,18 @@ type ProgressFunc func(Stage)
 type Subdomain struct {
 	Host    string   `json:"host"`
 	Sources []string `json:"sources"`
+	// CarriedOver is true when no source reported the host in this scan and
+	// it was kept from an earlier one (subdomains are append-only).
+	CarriedOver bool `json:"carried_over"`
+}
+
+// Target is what a scan runs against.
+type Target struct {
+	Domain string
+	// KnownSubdomains are subdomains found by earlier scans of Domain. They
+	// are kept in the result even if passive sources no longer report them,
+	// and still go through DNS and TLS so their current state is captured.
+	KnownSubdomains []Subdomain
 }
 
 // DNSRecord is a single resolved record for a host.
@@ -130,10 +143,10 @@ func New(opts Options) *Scanner {
 	return &Scanner{opts: opts.withDefaults()}
 }
 
-// Run executes every stage against domain and returns the combined result.
-// progress may be nil.
-func (s *Scanner) Run(ctx context.Context, domain string, progress ProgressFunc) (*Result, error) {
-	domain, err := NormalizeDomain(domain)
+// Run executes every stage against the target and returns the combined
+// result. progress may be nil.
+func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc) (*Result, error) {
+	domain, err := NormalizeDomain(target.Domain)
 	if err != nil {
 		return nil, err
 	}
@@ -144,10 +157,11 @@ func (s *Scanner) Run(ctx context.Context, domain string, progress ProgressFunc)
 	res := &Result{Domain: domain}
 
 	progress(StageSubdomains)
-	res.Subdomains, err = s.enumerateSubdomains(ctx, domain)
+	found, err := s.enumerateSubdomains(ctx, domain)
 	if err != nil {
 		return nil, fmt.Errorf("subdomain enumeration: %w", err)
 	}
+	res.Subdomains = mergeSubdomains(domain, found, target.KnownSubdomains)
 
 	hosts := make([]string, len(res.Subdomains))
 	for i, sd := range res.Subdomains {
@@ -171,6 +185,26 @@ func (s *Scanner) Run(ctx context.Context, domain string, progress ProgressFunc)
 	}
 
 	return res, nil
+}
+
+// mergeSubdomains adds known subdomains that weren't found again, marked as
+// carried over with the sources that reported them before. Known hosts
+// outside domain are dropped. The result is sorted by host.
+func mergeSubdomains(domain string, found, known []Subdomain) []Subdomain {
+	out := slices.Clone(found)
+	seen := make(map[string]bool, len(found))
+	for _, sd := range found {
+		seen[sd.Host] = true
+	}
+	for _, sd := range known {
+		if seen[sd.Host] || (sd.Host != domain && !strings.HasSuffix(sd.Host, "."+domain)) {
+			continue
+		}
+		seen[sd.Host] = true
+		out = append(out, Subdomain{Host: sd.Host, Sources: slices.Clone(sd.Sources), CarriedOver: true})
+	}
+	slices.SortFunc(out, func(a, b Subdomain) int { return strings.Compare(a.Host, b.Host) })
+	return out
 }
 
 var domainRe = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)

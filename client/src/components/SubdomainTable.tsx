@@ -13,6 +13,7 @@ interface Props {
 export default function SubdomainTable({ subdomains, records, certs, added }: Props) {
   const [query, setQuery] = useState("");
   const [resolvedOnly, setResolvedOnly] = useState(false);
+  const [reportedOnly, setReportedOnly] = useState(false);
 
   const ipsByHost = useMemo(() => {
     const m = new Map<string, string[]>();
@@ -25,9 +26,12 @@ export default function SubdomainTable({ subdomains, records, certs, added }: Pr
 
   const tlsHosts = useMemo(() => new Set(certs.map((c) => c.host)), [certs]);
 
+  const carriedOver = subdomains.filter((s) => s.carried_over).length;
   const rows = subdomains.filter(
     (s) =>
-      s.host.includes(query.toLowerCase()) && (!resolvedOnly || ipsByHost.has(s.host)),
+      s.host.includes(query.toLowerCase()) &&
+      (!resolvedOnly || ipsByHost.has(s.host)) &&
+      (!reportedOnly || !s.carried_over),
   );
 
   return (
@@ -42,6 +46,20 @@ export default function SubdomainTable({ subdomains, records, certs, added }: Pr
           />
           Resolved only
         </label>
+        {carriedOver > 0 && (
+          <label
+            className="flex items-center gap-2 text-sm text-slate-400"
+            title="Hide subdomains that no source reported this scan but that earlier scans found"
+          >
+            <input
+              type="checkbox"
+              checked={reportedOnly}
+              onChange={(e) => setReportedOnly(e.target.checked)}
+              className="accent-cyan-500"
+            />
+            Hide {carriedOver} carried over
+          </label>
+        )}
       </SearchBar>
       <Table head={["Host", "Addresses", "TLS", "Sources"]}>
         {rows.length === 0 && <EmptyRow cols={4} />}
@@ -52,6 +70,14 @@ export default function SubdomainTable({ subdomains, records, certs, added }: Pr
               <td className="px-4 py-2 font-mono text-white">
                 {s.host}
                 <NewChip show={!!added?.has(s.host)} />
+                {s.carried_over && (
+                  <span
+                    className="ml-2 align-middle"
+                    title="No source reported this host in this scan; it was found by an earlier scan"
+                  >
+                    <Chip>carried over</Chip>
+                  </span>
+                )}
               </td>
               <td className="px-4 py-2 font-mono text-xs text-slate-400">
                 {ips.length ? ips.join(", ") : <span className="text-slate-600">unresolved</span>}
@@ -60,7 +86,7 @@ export default function SubdomainTable({ subdomains, records, certs, added }: Pr
                 {tlsHosts.has(s.host) ? <Chip tone="emerald">443</Chip> : <span className="text-slate-600">—</span>}
               </td>
               <td className="px-4 py-2">
-                <div className="flex flex-wrap gap-1">
+                <div className={`flex flex-wrap gap-1 ${s.carried_over ? "opacity-50" : ""}`}>
                   {s.sources.map((src) => (
                     <Chip key={src}>{src}</Chip>
                   ))}

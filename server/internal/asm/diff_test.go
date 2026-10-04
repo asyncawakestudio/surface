@@ -81,3 +81,23 @@ func hosts(s []Subdomain) string {
 	}
 	return out
 }
+
+func TestCompareNoLongerReported(t *testing.T) {
+	prev := &Result{Subdomains: []Subdomain{
+		{Host: "a.example.com"},
+		{Host: "gone.example.com"},
+		{Host: "old.example.com", CarriedOver: true},
+	}}
+	cur := &Result{Subdomains: []Subdomain{
+		{Host: "a.example.com"},
+		{Host: "gone.example.com", CarriedOver: true},
+		{Host: "old.example.com", CarriedOver: true}, // already carried over last time
+	}}
+	d := Compare(prev, cur)
+	if got := hosts(d.Subdomains.NoLongerReported); got != "gone.example.com" {
+		t.Fatalf("no longer reported = %q, want gone.example.com", got)
+	}
+	if len(d.Subdomains.Removed) != 0 || d.Empty() {
+		t.Fatalf("diff = %+v", d.Subdomains)
+	}
+}

@@ -28,6 +28,8 @@ export interface Domain {
 export interface Subdomain {
   host: string;
   sources: string[];
+  /** Not reported by any source this scan; kept from an earlier scan. */
+  carried_over: boolean;
 }
 
 export interface DnsRecord {
@@ -78,7 +80,7 @@ export type ScanDiff =
   | { base: null }
   | {
       base: Scan;
-      subdomains: SetDiff<Subdomain>;
+      subdomains: SetDiff<Subdomain> & { no_longer_reported: Subdomain[] };
       dns_records: SetDiff<DnsRecord>;
       tls_certs: SetDiff<TlsCert> & { changed: CertChange[] };
     };

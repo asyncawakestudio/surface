@@ -132,6 +132,25 @@ func (f *fakeStore) PreviousCompleted(ctx context.Context, id int64) (*store.Sca
 	return nil, store.ErrNotFound
 }
 
+func (f *fakeStore) KnownSubdomains(_ context.Context, domain string) ([]asm.Subdomain, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	seen := map[string]bool{}
+	var out []asm.Subdomain
+	for _, d := range f.scans {
+		if d.Domain != domain || d.Status != store.StatusCompleted {
+			continue
+		}
+		for _, sd := range d.Subdomains {
+			if !seen[sd.Host] {
+				seen[sd.Host] = true
+				out = append(out, sd)
+			}
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) status(id int64) store.Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -150,9 +169,15 @@ type fakeScanner struct {
 	// block makes Run wait for cancellation; started is signalled first.
 	block   atomic.Bool
 	started chan struct{}
+	// targets records what each run was given.
+	targets []asm.Target
 }
 
-func (f *fakeScanner) Run(ctx context.Context, domain string, progress asm.ProgressFunc) (*asm.Result, error) {
+func (f *fakeScanner) Run(ctx context.Context, target asm.Target, progress asm.ProgressFunc) (*asm.Result, error) {
+	domain := target.Domain
+	f.mu.Lock()
+	f.targets = append(f.targets, target)
+	f.mu.Unlock()
 	progress(asm.StageSubdomains)
 	if f.block.Load() {
 		f.started <- struct{}{}
@@ -383,5 +408,29 @@ func TestDiffRequiresCompletedScan(t *testing.T) {
 	_, _, _, h := startBlockedScan(t)
 	if rec := do(h, http.MethodGet, "/api/scans/1/diff", ""); rec.Code != http.StatusConflict {
 		t.Fatalf("diff of running scan: status = %d, want 409", rec.Code)
+	}
+}
+
+func TestKnownSubdomainsArePassedToNextScan(t *testing.T) {
+	sc := &fakeScanner{results: []*asm.Result{
+		{Subdomains: []asm.Subdomain{{Host: "a.example.com", Sources: []string{"crtsh"}}}},
+		{Subdomains: []asm.Subdomain{{Host: "b.example.com"}}},
+	}}
+	_, jobs, h := newTestAPI(t, sc)
+
+	do(h, http.MethodPost, "/api/scans", `{"domain":"example.com"}`)
+	jobs.wg.Wait()
+	do(h, http.MethodPost, "/api/scans", `{"domain":"example.com"}`)
+	jobs.wg.Wait()
+
+	if len(sc.targets) != 2 {
+		t.Fatalf("runs = %d, want 2", len(sc.targets))
+	}
+	if n := len(sc.targets[0].KnownSubdomains); n != 0 {
+		t.Fatalf("first scan got %d known subdomains, want 0", n)
+	}
+	known := sc.targets[1].KnownSubdomains
+	if len(known) != 1 || known[0].Host != "a.example.com" || known[0].Sources[0] != "crtsh" {
+		t.Fatalf("second scan known subdomains = %+v", known)
 	}
 }

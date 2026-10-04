@@ -62,7 +62,10 @@ Both Dockerfiles use the repository root as their build context. Each one has it
 
 ```go
 scanner := asm.New(asm.Options{})
-res, err := scanner.Run(ctx, "example.com", func(s asm.Stage) { log.Println("stage:", s) })
+res, err := scanner.Run(ctx, asm.Target{
+    Domain:          "example.com",
+    KnownSubdomains: previous, // optional: subdomains from earlier scans, kept even if not found again
+}, func(s asm.Stage) { log.Println("stage:", s) })
 // res.Subdomains, res.DNSRecords, res.TLSCerts
 ```
 
@@ -80,14 +83,16 @@ res, err := scanner.Run(ctx, "example.com", func(s asm.Stage) { log.Println("sta
 
 Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed`, `failed` or `paused`. While running, `stage` is `subdomains`, `dns` or `tls`.
 
-Scans are never deleted: each domain keeps its full history. To rescan a domain, POST it again. The diff compares subdomains by host, DNS records by host+type+value, and certificates by `host:port`. A certificate with a new fingerprint counts as replaced. The tools can't resume partway through a stage, so a paused scan is continued by starting a new one.
+Scans are never deleted: each domain keeps its full history.
+
+Subdomains are append-only. Each scan starts with every subdomain found by the domain's earlier completed scans, then adds whatever subfinder finds now. Hosts that no source reported this time are kept with `carried_over: true` and the sources that reported them before. They still go through DNS and TLS, so a host that stopped resolving shows up as unresolved instead of vanishing. Because a subdomain never disappears, the diff reports `no_longer_reported` (found by sources last scan, carried over now) instead of `removed`. To rescan a domain, POST it again. The diff compares subdomains by host, DNS records by host+type+value, and certificates by `host:port`. A certificate with a new fingerprint counts as replaced. The tools can't resume partway through a stage, so a paused scan is continued by starting a new one.
 
 ## Database
 
 | Table              | Contents                                        |
 |--------------------|-------------------------------------------------|
 | `scans`            | one row per scan: domain, status, stage, timing. At most one queued/running scan per domain (partial unique index) |
-| `subdomains`       | host + the passive sources that reported it     |
+| `subdomains`       | host, the passive sources that reported it, and `carried_over` |
 | `dns_records`      | host, record type, value                        |
 | `tls_certificates` | subject, SANs, issuer, validity, flags, SHA-256 |
 

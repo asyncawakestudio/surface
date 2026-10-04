@@ -8,7 +8,7 @@ import (
 
 // Diff describes what changed between two scans of the same domain.
 type Diff struct {
-	Subdomains SetDiff[Subdomain] `json:"subdomains"`
+	Subdomains SubdomainDiff      `json:"subdomains"`
 	DNSRecords SetDiff[DNSRecord] `json:"dns_records"`
 	TLSCerts   CertDiff           `json:"tls_certs"`
 }
@@ -17,6 +17,14 @@ type Diff struct {
 type SetDiff[T any] struct {
 	Added   []T `json:"added"`
 	Removed []T `json:"removed"`
+}
+
+// SubdomainDiff also reports hosts that sources stopped returning. Since
+// subdomains are append-only these stay in the scan as carried over, so they
+// don't show up as Removed.
+type SubdomainDiff struct {
+	SetDiff[Subdomain]
+	NoLongerReported []Subdomain `json:"no_longer_reported"`
 }
 
 // CertDiff also reports endpoints whose certificate was replaced.
@@ -34,7 +42,7 @@ type CertChange struct {
 
 // Empty reports whether nothing changed.
 func (d Diff) Empty() bool {
-	return len(d.Subdomains.Added)+len(d.Subdomains.Removed)+
+	return len(d.Subdomains.Added)+len(d.Subdomains.Removed)+len(d.Subdomains.NoLongerReported)+
 		len(d.DNSRecords.Added)+len(d.DNSRecords.Removed)+
 		len(d.TLSCerts.Added)+len(d.TLSCerts.Removed)+len(d.TLSCerts.Changed) == 0
 }
@@ -44,10 +52,25 @@ func (d Diff) Empty() bool {
 // with a changed fingerprint counting as a replaced certificate.
 func Compare(prev, cur *Result) Diff {
 	d := Diff{
-		Subdomains: setDiff(prev.Subdomains, cur.Subdomains, func(s Subdomain) string { return s.Host }),
+		Subdomains: SubdomainDiff{
+			SetDiff:          setDiff(prev.Subdomains, cur.Subdomains, func(s Subdomain) string { return s.Host }),
+			NoLongerReported: []Subdomain{},
+		},
 		DNSRecords: setDiff(prev.DNSRecords, cur.DNSRecords, func(r DNSRecord) string {
 			return r.Host + "\x00" + r.Type + "\x00" + r.Value
 		}),
+	}
+
+	reportedBefore := make(map[string]bool, len(prev.Subdomains))
+	for _, sd := range prev.Subdomains {
+		if !sd.CarriedOver {
+			reportedBefore[sd.Host] = true
+		}
+	}
+	for _, sd := range cur.Subdomains {
+		if sd.CarriedOver && reportedBefore[sd.Host] {
+			d.Subdomains.NoLongerReported = append(d.Subdomains.NoLongerReported, sd)
+		}
 	}
 
 	endpoint := func(c TLSCert) string { return c.Host + ":" + strconv.Itoa(c.Port) }

@@ -16,7 +16,7 @@ import (
 
 // Scanner is the attack surface pipeline (implemented by *asm.Scanner).
 type Scanner interface {
-	Run(ctx context.Context, domain string, progress asm.ProgressFunc) (*asm.Result, error)
+	Run(ctx context.Context, target asm.Target, progress asm.ProgressFunc) (*asm.Result, error)
 }
 
 // Store is the persistence layer (implemented by *store.Store).
@@ -32,6 +32,7 @@ type Store interface {
 	ListDomains(ctx context.Context) ([]store.Domain, error)
 	GetScan(ctx context.Context, id int64) (*store.ScanDetail, error)
 	PreviousCompleted(ctx context.Context, id int64) (*store.ScanDetail, error)
+	KnownSubdomains(ctx context.Context, domain string) ([]asm.Subdomain, error)
 }
 
 type API struct {

@@ -206,10 +206,10 @@ func (s *Store) FailInterrupted(ctx context.Context) (int64, error) {
 func (s *Store) SaveResult(ctx context.Context, id int64, res *asm.Result) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"subdomains"},
-			[]string{"scan_id", "host", "sources"},
+			[]string{"scan_id", "host", "sources", "carried_over"},
 			pgx.CopyFromSlice(len(res.Subdomains), func(i int) ([]any, error) {
 				sd := res.Subdomains[i]
-				return []any{id, sd.Host, nonNil(sd.Sources)}, nil
+				return []any{id, sd.Host, nonNil(sd.Sources), sd.CarriedOver}, nil
 			})); err != nil {
 			return fmt.Errorf("insert subdomains: %w", err)
 		}
@@ -313,6 +313,35 @@ func (s *Store) PreviousCompleted(ctx context.Context, id int64) (*ScanDetail, e
 	return s.GetScan(ctx, prevID)
 }
 
+// KnownSubdomains returns every subdomain found by the domain's completed
+// scans, each with the union of sources that ever reported it. Scans carry
+// these forward so the subdomain list is append-only.
+func (s *Store) KnownSubdomains(ctx context.Context, domain string) ([]asm.Subdomain, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT sd.host,
+		        COALESCE(array_agg(DISTINCT src ORDER BY src) FILTER (WHERE src IS NOT NULL), '{}')
+		 FROM subdomains sd
+		 JOIN scans sc ON sc.id = sd.scan_id
+		 LEFT JOIN LATERAL unnest(sd.sources) AS src ON true
+		 WHERE sc.domain = $1 AND sc.status = 'completed'
+		 GROUP BY sd.host
+		 ORDER BY sd.host`, domain)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []asm.Subdomain{}
+	for rows.Next() {
+		var v asm.Subdomain
+		if err := rows.Scan(&v.Host, &v.Sources); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) queryScans(ctx context.Context, sql string, args ...any) ([]Scan, error) {
 	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -343,10 +372,10 @@ func (s *Store) GetScan(ctx context.Context, id int64) (*ScanDetail, error) {
 	d := &ScanDetail{Scan: *sc}
 
 	d.Subdomains, err = collect(ctx, s.pool,
-		`SELECT host, sources FROM subdomains WHERE scan_id = $1 ORDER BY host`, id,
+		`SELECT host, sources, carried_over FROM subdomains WHERE scan_id = $1 ORDER BY host`, id,
 		func(r pgx.Rows) (asm.Subdomain, error) {
 			var v asm.Subdomain
-			return v, r.Scan(&v.Host, &v.Sources)
+			return v, r.Scan(&v.Host, &v.Sources, &v.CarriedOver)
 		})
 	if err != nil {
 		return nil, err

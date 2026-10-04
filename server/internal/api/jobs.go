@@ -160,10 +160,19 @@ func (j *Jobs) run(ctx context.Context, id int64, domain string, jb *job) {
 		log.Error("mark running", "err", err)
 		return
 	}
-	log.Info("scan started")
+	// Subdomains are append-only: hosts from earlier scans are carried into
+	// this one. Without them the scan would silently drop known assets, so
+	// failing to load them fails the scan.
+	known, err := j.store.KnownSubdomains(bg, domain)
+	if err != nil {
+		log.Error("load known subdomains", "err", err)
+		j.fail(id, "failed to load subdomains from previous scans")
+		return
+	}
+	log.Info("scan started", "known_subdomains", len(known))
 	start := time.Now()
 
-	res, err := j.scanner.Run(ctx, domain, func(stage asm.Stage) {
+	res, err := j.scanner.Run(ctx, asm.Target{Domain: domain, KnownSubdomains: known}, func(stage asm.Stage) {
 		log.Info("scan stage", "stage", stage)
 		if err := j.store.SetStage(bg, id, string(stage)); err != nil {
 			log.Warn("set stage", "err", err)
