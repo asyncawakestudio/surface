@@ -117,6 +117,7 @@ Migrations in `server/internal/store/migrations` are embedded and applied once e
 | `DNS_RESOLVERS`             | —       | Comma-separated resolvers, e.g. `udp:1.1.1.1:53,tcp:8.8.8.8:53`. When unset, dnsx's public resolvers are used, falling back to the system resolver if they're unreachable |
 | `IPINFO_TOKEN`              | —       | ipinfo.io API token. Optional; without it the free tier's lower rate limits apply. Compose reads it from your shell or `devops/.env` |
 | `PORT_SCAN`                 | `true`  | Run the naabu port-scan stage. A half-open SYN scan needs the `NET_RAW` capability (compose grants it); otherwise naabu falls back to a TCP connect scan |
+| `PORT_SCAN_TYPE`            | `syn`   | `syn` (half-open; needs raw sockets + no NAT) or `connect` (full TCP connect; works anywhere). Dev `compose.yaml` uses `connect` (the Docker bridge NATs SYN replies away on WSL2); prod `compose.prod.yaml` uses `syn` with host networking. See the port-scanning note below |
 | `PORT_SCAN_RATE`            | `5000`  | Packets/sec. The SYN scan is send-bound, so this sets the pace: all 65535 ports take roughly `ports x IPs / rate` seconds. Raise it to scan faster (bounded by NIC/pcap throughput) |
 | `PORT_SCAN_RETRIES`         | `2`     | Retry passes over unanswered ports. Lower = faster but may miss ports under packet loss |
 | `PORT_SCAN_PORTS`           | `-`     | naabu port spec; `-` is all 65535. Set e.g. `top-1000` ports or `1-1024` for a faster partial scan |
@@ -124,7 +125,12 @@ Migrations in `server/internal/store/migrations` are embedded and applied once e
 
 Only globally routable IPs are sent to ipinfo.io: private, loopback, CGNAT and documentation ranges are skipped. A failed lookup (e.g. HTTP 429 when rate limited) is recorded on that IP and doesn't fail the scan. The IPDR tab builds its columns from whatever fields the response contains, so paid-plan fields such as `asn`, `company` or `privacy` show up automatically (flattened as `asn.name` etc.), and each row expands to the raw JSON.
 
-The port-scan stage runs a half-open SYN scan (naabu) of all 65535 TCP ports on each **IPv4** address the DNS stage resolved; IPv6 is skipped. A SYN scan sends raw packets, so the container is granted the `NET_RAW` and `NET_ADMIN` capabilities in `devops/compose.yaml`; without them naabu automatically falls back to a slower TCP connect scan. naabu loads `libpcap` at runtime, so both the dev (Alpine) and prod (distroless) images ship it. Set `PORT_SCAN=false` to skip the stage. Only scan hosts you are authorized to test.
+The port-scan stage scans all 65535 TCP ports on each **IPv4** address the DNS stage resolved (IPv6 is skipped) and records the open ones. Set `PORT_SCAN=false` to skip it. naabu loads `libpcap` at runtime, so both the dev (Alpine) and prod (distroless) images ship it. Only scan hosts you are authorized to test.
+
+Two scan modes (`PORT_SCAN_TYPE`):
+
+- **`connect`** — a full TCP connect scan. Uses the normal kernel stack, so it works through any NAT, including the Docker bridge. This is the dev default (`compose.yaml`), because a raw SYN scan behind the WSL2/Docker-Desktop bridge NAT sends packets but never sees the replies, reporting zero open ports.
+- **`syn`** — a half-open SYN scan (faster, stealthier). Needs the `NET_RAW`/`NET_ADMIN` capabilities **and** a network path with no SNAT. `compose.prod.yaml` runs the server with `network_mode: host` and `PORT_SCAN_TYPE=syn`, which works on a Linux host such as an EC2 instance in a **public** subnet. It will **not** work on Fargate (no raw sockets), behind a NAT gateway (SNAT), or on Docker Desktop/WSL2 (no real host networking) — use `connect` there.
 
 Without API keys, subfinder uses only free sources. To add keys, copy `devops/config/subfinder/provider-config.example.yaml` to `provider-config.yaml` in the same folder. Compose mounts `devops/config` into the API container.
 

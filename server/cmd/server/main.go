@@ -51,6 +51,7 @@ func run(logger *slog.Logger) error {
 		Resolvers:               envList("DNS_RESOLVERS"),
 		IPInfoToken:             os.Getenv("IPINFO_TOKEN"),
 		PortScan:                envBool("PORT_SCAN", true),
+		PortScanType:            os.Getenv("PORT_SCAN_TYPE"),    // "syn" (default) or "connect"
 		PortScanPorts:           os.Getenv("PORT_SCAN_PORTS"),   // default "-" (all) when empty
 		PortScanRate:            envInt("PORT_SCAN_RATE", 0),    // 0 -> package default
 		PortScanRetries:         envInt("PORT_SCAN_RETRIES", 0), // 0 -> package default

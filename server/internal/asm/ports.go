@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/projectdiscovery/goflags"
@@ -51,10 +52,15 @@ func (s *Scanner) scanPorts(ctx context.Context, hosts []resolvedHost) ([]PortSc
 	var mu sync.Mutex
 	portsByIP := make(map[string][]OpenPort, len(targets))
 
+	scanType := runner.SynScan
+	if strings.EqualFold(s.opts.PortScanType, "connect") {
+		scanType = runner.ConnectScan
+	}
+
 	options := &runner.Options{
 		Host:               goflags.StringSlice(targets),
 		Ports:              s.opts.PortScanPorts, // "-" == all 65535 TCP ports
-		ScanType:           runner.SynScan,
+		ScanType:           scanType,
 		IPVersion:          goflags.StringSlice{"4"}, // IPv4 only
 		Rate:               s.opts.PortScanRate,
 		Retries:            s.opts.PortScanRetries,
@@ -83,7 +89,8 @@ func (s *Scanner) scanPorts(ctx context.Context, hosts []resolvedHost) ([]PortSc
 	defer naabuRunner.Close()
 
 	s.opts.Logger.Info("ports: scanning",
-		"ips", len(targets), "ports", s.opts.PortScanPorts, "privileged", isPrivilegedScan())
+		"ips", len(targets), "ports", s.opts.PortScanPorts,
+		"type", scanType, "privileged", isPrivilegedScan())
 
 	if err := naabuRunner.RunEnumeration(ctx); err != nil {
 		return nil, fmt.Errorf("naabu scan: %w", err)

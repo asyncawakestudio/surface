@@ -124,6 +124,10 @@ type Options struct {
 	// PortScan enables the naabu port-scanning stage. A full SYN scan of all
 	// TCP ports is heavy and needs raw-socket privileges, so it is opt-in.
 	PortScan bool
+	// PortScanType selects the naabu scan mode: "syn" (half-open, needs raw
+	// sockets and a routable interface) or "connect" (full TCP connect, works
+	// through NAT such as a Docker bridge / WSL2). Defaults to "syn".
+	PortScanType string
 	// PortScanPorts is the naabu port spec; "-" means all 65535 TCP ports.
 	PortScanPorts string
 	// PortScanRate is packets per second.
@@ -159,6 +163,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.IPInfoConcurrency <= 0 {
 		o.IPInfoConcurrency = 8
+	}
+	if o.PortScanType == "" {
+		o.PortScanType = "syn"
 	}
 	if o.PortScanPorts == "" {
 		o.PortScanPorts = "-" // all 65535 TCP ports

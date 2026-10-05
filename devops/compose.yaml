@@ -35,6 +35,11 @@ services:
       IPINFO_TOKEN: ${IPINFO_TOKEN:-}
       # Port scanning (naabu). Set PORT_SCAN=false to skip the stage.
       PORT_SCAN: ${PORT_SCAN:-true}
+      # Scan mode: "connect" (full TCP connect) works through the Docker bridge
+      # NAT; a raw "syn" scan sends packets but its replies don't return through
+      # the bridge/WSL2 NAT, so it reports zero open ports here. Use "syn" only
+      # with host networking or on bare metal.
+      PORT_SCAN_TYPE: ${PORT_SCAN_TYPE:-connect}
       # Scan speed: packets/sec (higher = faster SYN scan), retry passes, and
       # port spec ("-" = all 65535). Raise the rate to scan all ports faster.
       PORT_SCAN_RATE: ${PORT_SCAN_RATE:-5000}
