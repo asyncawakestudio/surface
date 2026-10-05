@@ -35,6 +35,11 @@ services:
       IPINFO_TOKEN: ${IPINFO_TOKEN:-}
       # Port scanning (naabu). Set PORT_SCAN=false to skip the stage.
       PORT_SCAN: ${PORT_SCAN:-true}
+      # Scan speed: packets/sec (higher = faster SYN scan), retry passes, and
+      # port spec ("-" = all 65535). Raise the rate to scan all ports faster.
+      PORT_SCAN_RATE: ${PORT_SCAN_RATE:-5000}
+      PORT_SCAN_RETRIES: ${PORT_SCAN_RETRIES:-2}
+      PORT_SCAN_PORTS: ${PORT_SCAN_PORTS:--}
     ports:
       - "8080:8080"
     volumes:

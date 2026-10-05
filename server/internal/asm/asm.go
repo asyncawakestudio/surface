@@ -164,10 +164,10 @@ func (o Options) withDefaults() Options {
 		o.PortScanPorts = "-" // all 65535 TCP ports
 	}
 	if o.PortScanRate <= 0 {
-		o.PortScanRate = 1000
+		o.PortScanRate = 5000 // packets/sec; SYN scan is send-bound, so this sets the pace
 	}
 	if o.PortScanRetries <= 0 {
-		o.PortScanRetries = 3
+		o.PortScanRetries = 2 // each retry resends unanswered ports, i.e. another full pass
 	}
 	if o.PortScanThreads <= 0 {
 		o.PortScanThreads = 25

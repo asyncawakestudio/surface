@@ -144,30 +144,37 @@ func TestKnownSubdomains(t *testing.T) {
 		must(t, err)
 		must(t, s.SaveResult(ctx, sc.ID, &asm.Result{Subdomains: subs}))
 	}
+	// Oldest scan has a host ("ancient") that later scans never carry forward.
 	scan("example.com",
 		asm.Subdomain{Host: "a.example.com", Sources: []string{"crtsh"}},
-		asm.Subdomain{Host: "old.example.com", Sources: []string{"anubis"}})
+		asm.Subdomain{Host: "ancient.example.com", Sources: []string{"anubis"}})
+	// Latest completed scan: this is the only set that should be carried forward.
+	// a.example.com is carried over from scan #1 (no source found it again).
 	scan("example.com",
-		asm.Subdomain{Host: "a.example.com", Sources: []string{"virustotal", "crtsh"}},
-		asm.Subdomain{Host: "old.example.com", Sources: []string{"anubis"}, CarriedOver: true})
+		asm.Subdomain{Host: "a.example.com", Sources: []string{"crtsh", "virustotal"}, CarriedOver: true},
+		asm.Subdomain{Host: "new.example.com", Sources: []string{"crtsh"}})
 	scan("other.example.org", asm.Subdomain{Host: "x.other.example.org"})
 
-	// A paused scan's (absent) results don't count, and neither do other domains.
+	// A later paused scan's (absent) results don't count, and neither do other domains.
 	paused, err := s.CreateScan(ctx, "example.com")
 	must(t, err)
 	must(t, s.MarkPaused(ctx, paused.ID))
 
+	// Only the most recent completed scan (#2), not the union of all history:
+	// "ancient.example.com" from scan #1 must NOT be carried forward.
 	known, err := s.KnownSubdomains(ctx, "example.com")
 	must(t, err)
 	if len(known) != 2 ||
 		known[0].Host != "a.example.com" || strings.Join(known[0].Sources, ",") != "crtsh,virustotal" ||
-		known[1].Host != "old.example.com" || strings.Join(known[1].Sources, ",") != "anubis" {
+		known[1].Host != "new.example.com" || strings.Join(known[1].Sources, ",") != "crtsh" {
 		t.Fatalf("known = %+v", known)
 	}
 
+	// carried_over round-trips: a.example.com true, new.example.com false
+	// (subdomains are ordered by host).
 	d, err := s.GetScan(ctx, 2)
 	must(t, err)
-	if d.Subdomains[0].CarriedOver || !d.Subdomains[1].CarriedOver {
+	if !d.Subdomains[0].CarriedOver || d.Subdomains[1].CarriedOver {
 		t.Fatalf("carried_over not round-tripped: %+v", d.Subdomains)
 	}
 

@@ -135,20 +135,18 @@ func (f *fakeStore) PreviousCompleted(ctx context.Context, id int64) (*store.Sca
 func (f *fakeStore) KnownSubdomains(_ context.Context, domain string) ([]asm.Subdomain, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	seen := map[string]bool{}
-	var out []asm.Subdomain
+	// The most recent completed scan of the domain only (IDs order creation).
+	var latest *store.ScanDetail
 	for _, d := range f.scans {
-		if d.Domain != domain || d.Status != store.StatusCompleted {
-			continue
-		}
-		for _, sd := range d.Subdomains {
-			if !seen[sd.Host] {
-				seen[sd.Host] = true
-				out = append(out, sd)
-			}
+		if d.Domain == domain && d.Status == store.StatusCompleted &&
+			(latest == nil || d.ID > latest.ID) {
+			latest = d
 		}
 	}
-	return out, nil
+	if latest == nil {
+		return nil, nil
+	}
+	return append([]asm.Subdomain(nil), latest.Subdomains...), nil
 }
 
 func (f *fakeStore) status(id int64) store.Status {

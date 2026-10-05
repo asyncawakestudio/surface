@@ -11,6 +11,7 @@ require (
 	github.com/projectdiscovery/naabu/v2 v2.6.1
 	github.com/projectdiscovery/subfinder/v2 v2.16.0
 	github.com/projectdiscovery/tlsx v1.4.0
+	github.com/projectdiscovery/utils v0.11.2
 )
 
 require (
@@ -90,7 +91,6 @@ require (
 	github.com/projectdiscovery/retryabledns v1.0.116 // indirect
 	github.com/projectdiscovery/retryablehttp-go v1.3.24 // indirect
 	github.com/projectdiscovery/uncover v1.2.0 // indirect
-	github.com/projectdiscovery/utils v0.11.2 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
 	github.com/remeh/sizedwaitgroup v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

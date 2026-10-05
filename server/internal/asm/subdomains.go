@@ -4,22 +4,35 @@ import (
 	"context"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/runner"
+	contextutil "github.com/projectdiscovery/utils/context"
 )
 
-// enumerateSubdomains runs subfinder's passive sources against domain. The
-// root domain itself is always included so later stages cover it too.
+// enumerateSubdomains runs subfinder against domain, equivalent to the CLI
+// command `subfinder -d <domain> -all -silent`: every source (including the
+// slow ones) with silent output. The root domain itself is always included
+// so later stages cover it too.
 func (s *Scanner) enumerateSubdomains(ctx context.Context, domain string) ([]Subdomain, error) {
 	sf, err := runner.NewRunner(&runner.Options{
 		Threads:            10,
 		Timeout:            30,
 		MaxEnumerationTime: int(s.opts.SubfinderMaxTime.Minutes()),
 		ProviderConfig:     s.opts.SubfinderProviderConfig,
-		Silent:             true,
+		All:                true, // -all: use all sources
+		Silent:             true, // -silent: subdomains only, no extra output
 		DisableUpdateCheck: true,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// The subfinder CLI injects the "All" flag into the context, which some
+	// sources (e.g. crtsh) read to widen their queries. EnumerateSingleDomain
+	// bypasses that wiring, so set it here to match `-all` behavior.
+	ctx, err = contextutil.WithValues(ctx, contextutil.ContextArg("All"), contextutil.ContextArg(strconv.FormatBool(true)))
 	if err != nil {
 		return nil, err
 	}

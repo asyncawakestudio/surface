@@ -359,18 +359,20 @@ func (s *Store) PreviousCompleted(ctx context.Context, id int64) (*ScanDetail, e
 	return s.GetScan(ctx, prevID)
 }
 
-// KnownSubdomains returns every subdomain found by the domain's completed
-// scans, each with the union of sources that ever reported it. Scans carry
-// these forward so the subdomain list is append-only.
+// KnownSubdomains returns the subdomains of the domain's most recent
+// completed scan, with the sources recorded there. The next scan carries
+// these forward (append-only), so a host missing from the latest sources
+// persists one scan at a time rather than accumulating across all history.
 func (s *Store) KnownSubdomains(ctx context.Context, domain string) ([]asm.Subdomain, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT sd.host,
-		        COALESCE(array_agg(DISTINCT src ORDER BY src) FILTER (WHERE src IS NOT NULL), '{}')
+		`SELECT sd.host, sd.sources
 		 FROM subdomains sd
-		 JOIN scans sc ON sc.id = sd.scan_id
-		 LEFT JOIN LATERAL unnest(sd.sources) AS src ON true
-		 WHERE sc.domain = $1 AND sc.status = 'completed'
-		 GROUP BY sd.host
+		 WHERE sd.scan_id = (
+		     SELECT id FROM scans
+		     WHERE domain = $1 AND status = 'completed'
+		     ORDER BY created_at DESC
+		     LIMIT 1
+		 )
 		 ORDER BY sd.host`, domain)
 	if err != nil {
 		return nil, err
