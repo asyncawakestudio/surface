@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"surface/internal/asm"
+	"surface/asm"
 )
 
 // stopReason records why a job was cancelled, which decides the status it

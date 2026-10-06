@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"surface/internal/asm"
+	"surface/asm"
 )
 
 //go:embed migrations/*.sql

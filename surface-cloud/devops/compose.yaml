@@ -18,8 +18,8 @@ services:
 
   server:
     build:
-      context: ..
-      dockerfile: devops/server.Dockerfile
+      context: ../..
+      dockerfile: surface-cloud/devops/server.Dockerfile
       target: dev
     # Raw-socket caps so naabu performs a half-open SYN scan; without them it
     # falls back to a TCP connect scan.
@@ -47,8 +47,10 @@ services:
       PORT_SCAN_PORTS: ${PORT_SCAN_PORTS:--}
     ports:
       - "8080:8080"
+    working_dir: /src/surface-cloud/server
     volumes:
-      - ../server:/app
+      - ../../surface:/src/surface
+      - ../server:/src/surface-cloud/server
       - ./config:/config:ro
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
@@ -67,8 +69,8 @@ services:
 
   client:
     build:
-      context: ..
-      dockerfile: devops/client.Dockerfile
+      context: ../..
+      dockerfile: surface-cloud/devops/client.Dockerfile
     environment:
       API_URL: http://server:8080
       VITE_USE_POLLING: "true"

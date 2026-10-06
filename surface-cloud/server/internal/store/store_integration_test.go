@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"surface/internal/asm"
+	"surface/asm"
 )
 
 func openTestStore(t *testing.T) *Store {

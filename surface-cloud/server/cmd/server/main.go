@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"surface/internal/api"
-	"surface/internal/asm"
-	"surface/internal/store"
+	"surface-cloud/internal/api"
+	"surface/asm"
+	"surface-cloud/internal/store"
 )
 
 func main() {

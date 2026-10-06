@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"surface/internal/asm"
-	"surface/internal/store"
+	"surface/asm"
+	"surface-cloud/internal/store"
 )
 
 type fakeStore struct {

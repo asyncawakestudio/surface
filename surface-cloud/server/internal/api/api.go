@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"surface/internal/asm"
-	"surface/internal/store"
+	"surface/asm"
+	"surface-cloud/internal/store"
 )
 
 // Scanner is the attack surface pipeline (implemented by *asm.Scanner).

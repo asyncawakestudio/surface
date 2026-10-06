@@ -3,7 +3,7 @@
 # (see the client stage in server.Dockerfile).
 FROM node:24-alpine
 WORKDIR /app
-COPY client/package.json client/package-lock.json ./
+COPY surface-cloud/client/package.json surface-cloud/client/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 EXPOSE 5173
 CMD ["npm", "run", "dev"]

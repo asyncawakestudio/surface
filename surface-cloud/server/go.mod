@@ -1,17 +1,11 @@
-module surface
+module surface-cloud
 
 go 1.26.0
 
 require (
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
 	github.com/jackc/pgx/v5 v5.8.0
-	github.com/miekg/dns v1.1.73
-	github.com/projectdiscovery/dnsx v1.3.1
-	github.com/projectdiscovery/goflags v0.1.76
-	github.com/projectdiscovery/naabu/v2 v2.6.1
-	github.com/projectdiscovery/subfinder/v2 v2.16.0
-	github.com/projectdiscovery/tlsx v1.4.0
-	github.com/projectdiscovery/utils v0.11.2
+	surface v0.0.0
 )
 
 require (
@@ -67,6 +61,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
+	github.com/miekg/dns v1.1.73 // indirect
 	github.com/minio/selfupdate v0.6.1-0.20230907112617-f11e74f84ca7 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -79,18 +74,24 @@ require (
 	github.com/projectdiscovery/cdncheck v1.2.50 // indirect
 	github.com/projectdiscovery/chaos-client v0.5.2 // indirect
 	github.com/projectdiscovery/clistats v0.1.6 // indirect
+	github.com/projectdiscovery/dnsx v1.3.1 // indirect
 	github.com/projectdiscovery/fastdialer v0.5.18 // indirect
 	github.com/projectdiscovery/freeport v0.0.7 // indirect
+	github.com/projectdiscovery/goflags v0.1.76 // indirect
 	github.com/projectdiscovery/gologger v1.1.72 // indirect
 	github.com/projectdiscovery/hmap v0.0.102 // indirect
 	github.com/projectdiscovery/ipranger v0.0.53 // indirect
 	github.com/projectdiscovery/machineid v0.0.0-20250715113114-c77eb3567582 // indirect
 	github.com/projectdiscovery/mapcidr v1.1.97 // indirect
+	github.com/projectdiscovery/naabu/v2 v2.6.1 // indirect
 	github.com/projectdiscovery/networkpolicy v0.1.48 // indirect
 	github.com/projectdiscovery/ratelimit v0.0.88 // indirect
 	github.com/projectdiscovery/retryabledns v1.0.116 // indirect
 	github.com/projectdiscovery/retryablehttp-go v1.3.24 // indirect
+	github.com/projectdiscovery/subfinder/v2 v2.16.0 // indirect
+	github.com/projectdiscovery/tlsx v1.4.0 // indirect
 	github.com/projectdiscovery/uncover v1.2.0 // indirect
+	github.com/projectdiscovery/utils v0.11.2 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
 	github.com/remeh/sizedwaitgroup v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
@@ -130,3 +131,5 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace surface => ../../surface

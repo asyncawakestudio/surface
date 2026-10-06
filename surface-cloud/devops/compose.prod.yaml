@@ -26,8 +26,8 @@ services:
 
   server:
     build:
-      context: ..
-      dockerfile: devops/server.Dockerfile
+      context: ../..
+      dockerfile: surface-cloud/devops/server.Dockerfile
       target: prod
     # Host networking: no bridge SNAT, so raw SYN replies return to naabu's
     # capture. The server listens on the host's :8080 directly (no ports map).
