@@ -34,10 +34,11 @@ internal/scan/       shared params + option building for both front-ends
 ## CLI (humans)
 
 ```sh
-make build                       # builds ./bin/surface and ./bin/surface-mcp
-./bin/surface example.com                 # full scan, text report
-./bin/surface --json example.com          # JSON
-./bin/surface --skip=tls,ports example.com
+make build                            # builds ./bin/surface and ./bin/surface-mcp
+./bin/surface example.com                      # full scan, text report to stdout
+./bin/surface --output=json example.com        # JSON to stdout
+./bin/surface --output=report.csv example.com  # CSV to a file
+./bin/surface --skip=tls,ports example.com     # skip stages
 ```
 
 Just `surface <domain>` runs every stage — subdomains, dns, ipinfo, ports (all
@@ -45,22 +46,19 @@ Just `surface <domain>` runs every stage — subdomains, dns, ipinfo, ports (all
 
 | Flag | Description |
 |------|-------------|
-| `--json` | machine-readable JSON instead of a text report |
-| `--quiet` | no progress on stderr |
+| `--output=<dest>` | where/how to write results. Empty → `txt` to stdout. A bare format (`txt`, `json`, `csv`, `xml`) → that format to stdout. A file path → format from its extension (`report.json`, `hosts.csv`, `out.xml`) |
 | `--skip=<stages>` | comma-separated stages to skip: `ipinfo`, `ports`, `tls` (subdomains and dns always run) |
+| `--quiet` | no progress on stderr |
+| `--ipinfo-token=<tok>` | ipinfo.io API token |
+| `--subfinder-config=<f>` | subfinder `provider-config.yaml` with API keys (defaults to subfinder's own `~/.config` path) |
+| `--resolvers=<list>` | comma-separated, e.g. `udp:1.1.1.1:53` |
+| `--max-time=<dur>` | subfinder enumeration cap, e.g. `10m` |
+| `--port-type=<t>` | `syn` or `connect` (default `connect`) |
+| `--port-spec=<s>` | `-` (all), `1-1000`, `80,443` |
+| `--port-rate=<n>` | packets/sec for the port scan |
 
-Advanced tuning is read from the environment (all optional), matching how
-`surface-cloud` is configured:
-
-| Env var | Description |
-|---------|-------------|
-| `IPINFO_TOKEN` | ipinfo.io API token |
-| `SUBFINDER_PROVIDER_CONFIG` | subfinder `provider-config.yaml` with API keys (defaults to subfinder's own `~/.config` path) |
-| `DNS_RESOLVERS` | comma-separated, e.g. `udp:1.1.1.1:53` |
-| `SUBFINDER_MAX_TIME` | subfinder cap, e.g. `10m` |
-| `PORT_SCAN_TYPE` | `syn` or `connect` (default `connect`) |
-| `PORT_SCAN_PORTS` | `-` (all), `1-1000`, `80,443` |
-| `PORT_SCAN_RATE` | packets/sec |
+The `txt` report is for reading; `json` carries the full nested result; `csv`
+and `xml` are flat, one row per finding (`type,host,ip,port,field,value`).
 
 ## MCP (AI agents)
 

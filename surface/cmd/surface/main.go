@@ -9,19 +9,19 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"surface/asm"
+	"surface/internal/output"
 	"surface/internal/scan"
 )
 
@@ -47,26 +47,29 @@ func usage() {
 	fmt.Fprint(os.Stderr, `surface — attack surface discovery
 
 Usage:
-  surface [--json] [--quiet] [--skip=<stages>] <domain>
+  surface [flags] <domain>
   surface version
 
 By default every stage runs — subdomains, dns, ipinfo, ports (all 65535), tls.
 
-Flags:
-  --json           output JSON instead of a text report
-  --quiet          suppress progress logging on stderr
-  --skip=<stages>  comma-separated stages to skip: ipinfo, ports, tls
-                   (subdomains and dns are always run)
+Output:
+  --output <dest>       where/how to write results (default: txt to stdout).
+                        A file path picks the format by extension
+                        (report.json, hosts.csv, out.xml, scan.txt); a bare
+                        format name (json, csv, xml, txt) writes to stdout.
+  --skip <stages>       comma-separated stages to skip: ipinfo, ports, tls
+                        (subdomains and dns are always run)
+  --quiet               suppress progress logging on stderr
 
-Advanced tuning is read from the environment (all optional):
-  IPINFO_TOKEN              ipinfo.io API token
-  SUBFINDER_PROVIDER_CONFIG subfinder provider-config.yaml with API keys
+Tuning (all optional):
+  --ipinfo-token <tok>      ipinfo.io API token
+  --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
-  DNS_RESOLVERS             comma-separated, e.g. udp:1.1.1.1:53
-  SUBFINDER_MAX_TIME        subfinder cap, e.g. 10m
-  PORT_SCAN_TYPE            syn | connect (default connect)
-  PORT_SCAN_PORTS           -, 1-1000, 80,443 (default -)
-  PORT_SCAN_RATE            packets/sec
+  --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
+  --max-time <dur>          subfinder enumeration cap, e.g. 10m
+  --port-type <t>           syn | connect (default connect)
+  --port-spec <s>           -, 1-1000, 80,443 (default -)
+  --port-rate <n>           packets/sec for the port scan
 `)
 }
 
@@ -75,9 +78,16 @@ func runScan(args []string) int {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = usage
 	var (
-		jsonOut = fs.Bool("json", false, "output JSON instead of a text report")
-		quiet   = fs.Bool("quiet", false, "suppress progress logging on stderr")
-		skip    = fs.String("skip", "", "comma-separated stages to skip: ipinfo, ports, tls")
+		outDest   = fs.String("output", "", "output destination: a file path (format by extension) or a format name; empty = txt to stdout")
+		skip      = fs.String("skip", "", "comma-separated stages to skip: ipinfo, ports, tls")
+		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
+		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
+		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
+		resolvers = fs.String("resolvers", "", "comma-separated DNS resolvers")
+		maxTime   = fs.String("max-time", "", "subfinder enumeration cap, e.g. 10m")
+		portType  = fs.String("port-type", "", "port scan mode: syn or connect")
+		portSpec  = fs.String("port-spec", "", "ports to scan: -, 1-1000, 80,443")
+		portRate  = fs.Int("port-rate", 0, "packets/sec for the port scan")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -88,16 +98,19 @@ func runScan(args []string) int {
 		usage()
 		return 2
 	}
+	outFormat, outFile, err := resolveOutput(*outDest)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 2
+	}
 
-	// Common usage is just `surface <domain>`; everything else is tuned
-	// through the environment, matching how surface-cloud is configured.
 	p := scan.Params{
 		Domain:       rest[0],
-		PortType:     os.Getenv("PORT_SCAN_TYPE"),
-		PortSpec:     os.Getenv("PORT_SCAN_PORTS"),
-		PortRate:     envInt("PORT_SCAN_RATE"),
-		IPInfoToken:  os.Getenv("IPINFO_TOKEN"),
-		SubfinderCfg: os.Getenv("SUBFINDER_PROVIDER_CONFIG"),
+		PortType:     *portType,
+		PortSpec:     *portSpec,
+		PortRate:     *portRate,
+		IPInfoToken:  *ipToken,
+		SubfinderCfg: *sfConfig,
 	}
 	if *skip != "" {
 		if err := p.ApplySkips(splitComma(*skip)); err != nil {
@@ -105,13 +118,13 @@ func runScan(args []string) int {
 			return 2
 		}
 	}
-	if r := os.Getenv("DNS_RESOLVERS"); r != "" {
-		p.Resolvers = splitComma(r)
+	if *resolvers != "" {
+		p.Resolvers = splitComma(*resolvers)
 	}
-	if mt := os.Getenv("SUBFINDER_MAX_TIME"); mt != "" {
-		d, err := time.ParseDuration(mt)
+	if *maxTime != "" {
+		d, err := time.ParseDuration(*maxTime)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error: invalid SUBFINDER_MAX_TIME:", err)
+			fmt.Fprintln(os.Stderr, "error: invalid --max-time:", err)
 			return 2
 		}
 		p.MaxTime = d
@@ -137,104 +150,44 @@ func runScan(args []string) int {
 		return 1
 	}
 
-	if *jsonOut {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(res); err != nil {
-			fmt.Fprintln(os.Stderr, "encode:", err)
+	w := os.Stdout
+	if outFile != "" {
+		f, err := os.Create(outFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error: cannot create output file:", err)
 			return 1
 		}
-		return 0
+		defer f.Close()
+		w = f
 	}
-	printReport(os.Stdout, res)
-	return 0
-}
-
-func printReport(w *os.File, r *asm.Result) {
-	fmt.Fprintf(w, "\nSurface report for %s\n", r.Domain)
-	fmt.Fprintf(w, "%s\n", strings.Repeat("=", 40))
-
-	fmt.Fprintf(w, "\nSubdomains (%d)\n", len(r.Subdomains))
-	for _, s := range r.Subdomains {
-		tag := ""
-		if s.CarriedOver {
-			tag = "  [carried over]"
-		}
-		fmt.Fprintf(w, "  %s%s\n", s.Host, tag)
+	if err := output.Render(w, res, outFormat); err != nil {
+		fmt.Fprintln(os.Stderr, "error: writing output:", err)
+		return 1
 	}
-
-	fmt.Fprintf(w, "\nDNS records (%d)\n", len(r.DNSRecords))
-	for _, d := range r.DNSRecords {
-		fmt.Fprintf(w, "  %-40s %-6s %s\n", d.Host, d.Type, d.Value)
-	}
-
-	fmt.Fprintf(w, "\nIP info (%d)\n", len(r.IPInfo))
-	for _, i := range r.IPInfo {
-		if i.Error != "" {
-			fmt.Fprintf(w, "  %-18s error: %s\n", i.IP, i.Error)
-			continue
-		}
-		fmt.Fprintf(w, "  %-18s %s\n", i.IP, summarizeIPInfo(i.Data))
-	}
-
-	if len(r.PortScans) > 0 {
-		fmt.Fprintf(w, "\nOpen ports\n")
-		for _, ps := range r.PortScans {
-			ports := make([]string, len(ps.Ports))
-			for j, p := range ps.Ports {
-				ports[j] = fmt.Sprintf("%d/%s", p.Port, p.Protocol)
-			}
-			fmt.Fprintf(w, "  %-18s %s\n", ps.IP, strings.Join(ports, ", "))
-		}
-	}
-
-	fmt.Fprintf(w, "\nTLS certificates (%d)\n", len(r.TLSCerts))
-	for _, c := range r.TLSCerts {
-		flags := certFlags(c)
-		fmt.Fprintf(w, "  %s:%d  %s  (issuer: %s)%s\n", c.Host, c.Port, c.SubjectCN, c.IssuerCN, flags)
-	}
-	fmt.Fprintln(w)
-}
-
-func certFlags(c asm.TLSCert) string {
-	var f []string
-	if c.Expired {
-		f = append(f, "expired")
-	}
-	if c.SelfSigned {
-		f = append(f, "self-signed")
-	}
-	if c.Mismatched {
-		f = append(f, "mismatched")
-	}
-	if len(f) == 0 {
-		return ""
-	}
-	return "  [" + strings.Join(f, ", ") + "]"
-}
-
-func summarizeIPInfo(data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		return ""
-	}
-	var parts []string
-	for _, k := range []string{"org", "city", "region", "country"} {
-		if v, ok := m[k].(string); ok && v != "" {
-			parts = append(parts, v)
-		}
-	}
-	return strings.Join(parts, " · ")
-}
-
-func envInt(key string) int {
-	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil {
-		return n
+	if outFile != "" && !*quiet {
+		fmt.Fprintf(os.Stderr, "wrote %s output to %s\n", outFormat, outFile)
 	}
 	return 0
+}
+
+// resolveOutput maps the --output value to a format and an optional file path.
+// Empty -> txt on stdout. A bare format name (json/csv/xml/txt) -> that format
+// on stdout. Anything else is a file path whose extension selects the format.
+func resolveOutput(dest string) (format, file string, err error) {
+	if dest == "" {
+		return "txt", "", nil
+	}
+	if ext := strings.TrimPrefix(filepath.Ext(dest), "."); ext != "" {
+		ext = strings.ToLower(ext)
+		if !output.Valid(ext) {
+			return "", "", fmt.Errorf("unknown output extension %q (valid: %s)", ext, strings.Join(output.Formats, ", "))
+		}
+		return ext, dest, nil
+	}
+	if output.Valid(strings.ToLower(dest)) {
+		return strings.ToLower(dest), "", nil
+	}
+	return "", "", fmt.Errorf("cannot determine format from --output %q; use a format name (%s) or a file with one of those extensions", dest, strings.Join(output.Formats, ", "))
 }
 
 func splitComma(s string) []string {
