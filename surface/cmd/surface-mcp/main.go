@@ -118,14 +118,14 @@ func (s *server) handle(req *request) {
 
 var tools = []map[string]any{{
 	"name":        "scan",
-	"description": "Run attack-surface discovery against a domain: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io), optional TCP port scan (naabu), and TLS certificate inspection (tlsx). Returns the full result as JSON.",
+	"description": "Run attack-surface discovery against a domain. By default every stage runs: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io), a TCP port scan of all ports (naabu), and TLS certificate inspection (tlsx). Use `skip` to turn stages off. Returns the full result as JSON.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"domain":           map[string]any{"type": "string", "description": "Registrable domain to scan, e.g. example.com"},
-			"ports":            map[string]any{"type": "boolean", "description": "Run the port-scan stage (default false)"},
+			"skip":             map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"ipinfo", "ports", "tls"}}, "description": "Stages to skip (subdomains and dns always run)"},
 			"port_type":        map[string]any{"type": "string", "enum": []string{"syn", "connect"}, "description": "Port scan mode (default connect)"},
-			"port_spec":        map[string]any{"type": "string", "description": `Ports to scan: "-" for all, "1-1000", or "80,443"`},
+			"port_spec":        map[string]any{"type": "string", "description": `Ports to scan: "-" for all (default), "1-1000", or "80,443"`},
 			"port_rate":        map[string]any{"type": "integer", "description": "Packets/sec for the port scan"},
 			"resolvers":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "DNS resolvers, e.g. udp:1.1.1.1:53"},
 			"ipinfo_token":     map[string]any{"type": "string", "description": "ipinfo.io API token (optional)"},
@@ -137,7 +137,7 @@ var tools = []map[string]any{{
 
 type scanArgs struct {
 	Domain          string   `json:"domain"`
-	Ports           bool     `json:"ports"`
+	Skip            []string `json:"skip"`
 	PortType        string   `json:"port_type"`
 	PortSpec        string   `json:"port_spec"`
 	PortRate        int      `json:"port_rate"`
@@ -172,16 +172,21 @@ func (s *server) handleToolCall(req *request) {
 		return
 	}
 
-	res, err := scan.Run(context.Background(), scan.Params{
+	p := scan.Params{
 		Domain:       a.Domain,
-		Ports:        a.Ports,
 		PortType:     a.PortType,
 		PortSpec:     a.PortSpec,
 		PortRate:     a.PortRate,
 		Resolvers:    a.Resolvers,
 		IPInfoToken:  a.IPInfoToken,
 		SubfinderCfg: a.SubfinderConfig,
-	}, nil, nil)
+	}
+	if err := p.ApplySkips(a.Skip); err != nil {
+		s.reply(req, toolError(err.Error()))
+		return
+	}
+
+	res, err := scan.Run(context.Background(), p, nil, nil)
 	if err != nil {
 		s.reply(req, toolError("scan failed: "+err.Error()))
 		return

@@ -124,6 +124,10 @@ type Options struct {
 	// PortScan enables the naabu port-scanning stage. A full SYN scan of all
 	// TCP ports is heavy and needs raw-socket privileges, so it is opt-in.
 	PortScan bool
+	// SkipIPInfo disables the ipinfo.io stage.
+	SkipIPInfo bool
+	// SkipTLS disables the tlsx certificate stage.
+	SkipTLS bool
 	// PortScanType selects the naabu scan mode: "syn" (half-open, needs raw
 	// sockets and a routable interface) or "connect" (full TCP connect, works
 	// through NAT such as a Docker bridge / WSL2). Defaults to "syn".
@@ -233,10 +237,12 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 	res.DNSRecords = records
 
-	progress(StageIPInfo)
-	res.IPInfo, err = s.lookupIPs(ctx, resolved)
-	if err != nil {
-		return nil, fmt.Errorf("ip lookup: %w", err)
+	if !s.opts.SkipIPInfo {
+		progress(StageIPInfo)
+		res.IPInfo, err = s.lookupIPs(ctx, resolved)
+		if err != nil {
+			return nil, fmt.Errorf("ip lookup: %w", err)
+		}
 	}
 
 	if s.opts.PortScan {
@@ -250,10 +256,12 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	// TODO: service enumeration goes here, and discovered open ports can feed
 	// the TLS stage instead of the static TLSPorts list.
 
-	progress(StageTLS)
-	res.TLSCerts, err = s.grabCerts(ctx, resolved)
-	if err != nil {
-		return nil, fmt.Errorf("tls probing: %w", err)
+	if !s.opts.SkipTLS {
+		progress(StageTLS)
+		res.TLSCerts, err = s.grabCerts(ctx, resolved)
+		if err != nil {
+			return nil, fmt.Errorf("tls probing: %w", err)
+		}
 	}
 
 	return res, nil

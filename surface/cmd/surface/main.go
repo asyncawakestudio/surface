@@ -1,8 +1,8 @@
 // Command surface is the human-facing CLI for the core discovery service.
 //
-//	surface scan example.com                 # human-readable report
-//	surface scan --json example.com          # machine-readable JSON
-//	surface scan --ports --port-type connect example.com
+//	surface example.com                 # full scan, human-readable report
+//	surface --json example.com          # machine-readable JSON
+//	surface --skip=tls,ports example.com
 //
 // It runs the same engine the MCP server and the cloud product use.
 package main
@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -30,16 +31,13 @@ func main() {
 		os.Exit(2)
 	}
 	switch os.Args[1] {
-	case "scan":
-		os.Exit(runScan(os.Args[2:]))
 	case "version", "-v", "--version":
 		fmt.Println("surface", version)
 	case "help", "-h", "--help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
-		usage()
-		os.Exit(2)
+		// Everything else is a scan: `surface [flags] <domain>`.
+		os.Exit(runScan(os.Args[1:]))
 	}
 }
 
@@ -49,38 +47,37 @@ func usage() {
 	fmt.Fprint(os.Stderr, `surface — attack surface discovery
 
 Usage:
-  surface scan [flags] <domain>
+  surface [--json] [--quiet] [--skip=<stages>] <domain>
   surface version
 
-Scan flags:
-  --json                 output JSON instead of a text report
-  --ports                run the port-scan stage (naabu)
-  --port-type <t>        port scan mode: syn or connect (default connect)
-  --port-spec <s>        ports to scan: "-" all, "1-1000", "80,443" (default -)
-  --port-rate <n>        packets/sec for the port scan
-  --resolvers <list>     comma-separated DNS resolvers (e.g. udp:1.1.1.1:53)
-  --ipinfo-token <tok>   ipinfo.io API token
-  --subfinder-config <f> subfinder provider-config.yaml (API keys)
-  --max-time <dur>       subfinder max enumeration time (e.g. 10m)
-  --quiet                suppress progress logging on stderr
+By default every stage runs — subdomains, dns, ipinfo, ports (all 65535), tls.
+
+Flags:
+  --json           output JSON instead of a text report
+  --quiet          suppress progress logging on stderr
+  --skip=<stages>  comma-separated stages to skip: ipinfo, ports, tls
+                   (subdomains and dns are always run)
+
+Advanced tuning is read from the environment (all optional):
+  IPINFO_TOKEN              ipinfo.io API token
+  SUBFINDER_PROVIDER_CONFIG subfinder provider-config.yaml with API keys
+                            (defaults to subfinder's own ~/.config path)
+  DNS_RESOLVERS             comma-separated, e.g. udp:1.1.1.1:53
+  SUBFINDER_MAX_TIME        subfinder cap, e.g. 10m
+  PORT_SCAN_TYPE            syn | connect (default connect)
+  PORT_SCAN_PORTS           -, 1-1000, 80,443 (default -)
+  PORT_SCAN_RATE            packets/sec
 `)
 }
 
 func runScan(args []string) int {
-	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
+	fs := flag.NewFlagSet("surface", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = usage
 	var (
-		jsonOut  = fs.Bool("json", false, "output JSON instead of a text report")
-		ports    = fs.Bool("ports", false, "run the port-scan stage")
-		portType = fs.String("port-type", "connect", "port scan mode: syn or connect")
-		portSpec = fs.String("port-spec", "", "ports to scan (-, 1-1000, 80,443)")
-		portRate = fs.Int("port-rate", 0, "packets/sec for the port scan")
-		resolver = fs.String("resolvers", "", "comma-separated DNS resolvers")
-		ipToken  = fs.String("ipinfo-token", "", "ipinfo.io API token")
-		sfConfig = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
-		maxTime  = fs.String("max-time", "", "subfinder max enumeration time (e.g. 10m)")
-		quiet    = fs.Bool("quiet", false, "suppress progress logging on stderr")
+		jsonOut = fs.Bool("json", false, "output JSON instead of a text report")
+		quiet   = fs.Bool("quiet", false, "suppress progress logging on stderr")
+		skip    = fs.String("skip", "", "comma-separated stages to skip: ipinfo, ports, tls")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -92,22 +89,29 @@ func runScan(args []string) int {
 		return 2
 	}
 
+	// Common usage is just `surface <domain>`; everything else is tuned
+	// through the environment, matching how surface-cloud is configured.
 	p := scan.Params{
 		Domain:       rest[0],
-		Ports:        *ports,
-		PortType:     *portType,
-		PortSpec:     *portSpec,
-		PortRate:     *portRate,
-		IPInfoToken:  *ipToken,
-		SubfinderCfg: *sfConfig,
+		PortType:     os.Getenv("PORT_SCAN_TYPE"),
+		PortSpec:     os.Getenv("PORT_SCAN_PORTS"),
+		PortRate:     envInt("PORT_SCAN_RATE"),
+		IPInfoToken:  os.Getenv("IPINFO_TOKEN"),
+		SubfinderCfg: os.Getenv("SUBFINDER_PROVIDER_CONFIG"),
 	}
-	if *resolver != "" {
-		p.Resolvers = splitComma(*resolver)
+	if *skip != "" {
+		if err := p.ApplySkips(splitComma(*skip)); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return 2
+		}
 	}
-	if *maxTime != "" {
-		d, err := time.ParseDuration(*maxTime)
+	if r := os.Getenv("DNS_RESOLVERS"); r != "" {
+		p.Resolvers = splitComma(r)
+	}
+	if mt := os.Getenv("SUBFINDER_MAX_TIME"); mt != "" {
+		d, err := time.ParseDuration(mt)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error: invalid --max-time:", err)
+			fmt.Fprintln(os.Stderr, "error: invalid SUBFINDER_MAX_TIME:", err)
 			return 2
 		}
 		p.MaxTime = d
@@ -224,6 +228,13 @@ func summarizeIPInfo(data []byte) string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+func envInt(key string) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil {
+		return n
+	}
+	return 0
 }
 
 func splitComma(s string) []string {

@@ -34,26 +34,33 @@ internal/scan/       shared params + option building for both front-ends
 ## CLI (humans)
 
 ```sh
-make build                      # builds ./bin/surface and ./bin/surface-mcp
-./bin/surface scan example.com                      # text report
-./bin/surface scan --json example.com               # JSON
-./bin/surface scan --ports --port-type connect example.com
+make build                       # builds ./bin/surface and ./bin/surface-mcp
+./bin/surface example.com                 # full scan, text report
+./bin/surface --json example.com          # JSON
+./bin/surface --skip=tls,ports example.com
 ```
 
-Flags (put them before the domain):
+Just `surface <domain>` runs every stage — subdomains, dns, ipinfo, ports (all
+65535), tls. Flags (before the domain):
 
 | Flag | Description |
 |------|-------------|
 | `--json` | machine-readable JSON instead of a text report |
-| `--ports` | run the port-scan stage |
-| `--port-type syn\|connect` | scan mode (default `connect`) |
-| `--port-spec` | `-` (all), `1-1000`, `80,443` |
-| `--port-rate` | packets/sec |
-| `--resolvers` | comma-separated, e.g. `udp:1.1.1.1:53` |
-| `--ipinfo-token` | ipinfo.io API token |
-| `--subfinder-config` | subfinder `provider-config.yaml` for API-key sources |
-| `--max-time` | subfinder cap, e.g. `10m` |
 | `--quiet` | no progress on stderr |
+| `--skip=<stages>` | comma-separated stages to skip: `ipinfo`, `ports`, `tls` (subdomains and dns always run) |
+
+Advanced tuning is read from the environment (all optional), matching how
+`surface-cloud` is configured:
+
+| Env var | Description |
+|---------|-------------|
+| `IPINFO_TOKEN` | ipinfo.io API token |
+| `SUBFINDER_PROVIDER_CONFIG` | subfinder `provider-config.yaml` with API keys (defaults to subfinder's own `~/.config` path) |
+| `DNS_RESOLVERS` | comma-separated, e.g. `udp:1.1.1.1:53` |
+| `SUBFINDER_MAX_TIME` | subfinder cap, e.g. `10m` |
+| `PORT_SCAN_TYPE` | `syn` or `connect` (default `connect`) |
+| `PORT_SCAN_PORTS` | `-` (all), `1-1000`, `80,443` |
+| `PORT_SCAN_RATE` | packets/sec |
 
 ## MCP (AI agents)
 
