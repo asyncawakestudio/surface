@@ -37,7 +37,7 @@ export default function App() {
           setSelectedDomain((cur) => cur ?? list[0]?.domain ?? null);
         })
         .catch(onError),
-    anyActive ? 3000 : 15000,
+    anyActive ? 4000 : 30000,
     [refreshKey],
   );
 
@@ -52,7 +52,7 @@ export default function App() {
         })
         .catch(onError);
     },
-    anyActive ? 3000 : 15000,
+    anyActive ? 4000 : 30000,
     [selectedDomain, refreshKey],
   );
 
