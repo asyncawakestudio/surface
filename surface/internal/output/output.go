@@ -69,7 +69,7 @@ func flatten(r *asm.Result) []record {
 		rows = append(rows, record{Type: "dns", Host: d.Host, Field: d.Type, Value: d.Value})
 	}
 	for _, i := range r.IPInfo {
-		rec := record{Type: "ipinfo", IP: i.IP, Field: "data", Value: string(i.Data)}
+		rec := record{Type: "ipdr", IP: i.IP, Field: "data", Value: string(i.Data)}
 		if i.Error != "" {
 			rec.Field, rec.Value = "error", i.Error
 		}
@@ -82,7 +82,7 @@ func flatten(r *asm.Result) []record {
 	}
 	for _, c := range r.TLSCerts {
 		rows = append(rows, record{
-			Type: "tls", Host: c.Host, Port: c.Port, Field: "cert",
+			Type: "certs", Host: c.Host, Port: c.Port, Field: "cert",
 			Value: fmt.Sprintf("subject=%s; issuer=%s; expires=%s%s",
 				c.SubjectCN, c.IssuerCN, c.NotAfter.Format("2006-01-02"), flagSuffix(c)),
 		})
@@ -148,7 +148,7 @@ func renderText(w io.Writer, r *asm.Result) error {
 		p("  %-40s %-6s %s\n", d.Host, d.Type, d.Value)
 	}
 
-	p("\nIP info (%d)\n", len(r.IPInfo))
+	p("\nIPDR (%d)\n", len(r.IPInfo))
 	for _, i := range r.IPInfo {
 		if i.Error != "" {
 			p("  %-18s error: %s\n", i.IP, i.Error)

@@ -2,7 +2,7 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipinfo (ipinfo.io) -> ports (naabu) -> tls (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> ports (naabu) -> certs (tlsx)
 //
 // Port scanning and service enumeration will slot in after the DNS stage,
 // since they need resolved hosts as input.
@@ -28,9 +28,9 @@ type Stage string
 const (
 	StageSubdomains Stage = "subdomains"
 	StageDNS        Stage = "dns"
-	StageIPInfo     Stage = "ipinfo"
+	StageIPDR       Stage = "ipdr"
 	StagePorts      Stage = "ports"
-	StageTLS        Stage = "tls"
+	StageCerts      Stage = "certs"
 )
 
 // ProgressFunc is called when the scan enters a new stage.
@@ -124,10 +124,10 @@ type Options struct {
 	// PortScan enables the naabu port-scanning stage. A full SYN scan of all
 	// TCP ports is heavy and needs raw-socket privileges, so it is opt-in.
 	PortScan bool
-	// SkipIPInfo disables the ipinfo.io stage.
-	SkipIPInfo bool
-	// SkipTLS disables the tlsx certificate stage.
-	SkipTLS bool
+	// SkipIPDR disables the IPDR stage (IP data records via ipinfo.io).
+	SkipIPDR bool
+	// SkipCerts disables the certificate stage (TLS inspection via tlsx).
+	SkipCerts bool
 	// PortScanType selects the naabu scan mode: "syn" (half-open, needs raw
 	// sockets and a routable interface) or "connect" (full TCP connect, works
 	// through NAT such as a Docker bridge / WSL2). Defaults to "syn".
@@ -237,8 +237,8 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 	res.DNSRecords = records
 
-	if !s.opts.SkipIPInfo {
-		progress(StageIPInfo)
+	if !s.opts.SkipIPDR {
+		progress(StageIPDR)
 		res.IPInfo, err = s.lookupIPs(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("ip lookup: %w", err)
@@ -256,8 +256,8 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	// TODO: service enumeration goes here, and discovered open ports can feed
 	// the TLS stage instead of the static TLSPorts list.
 
-	if !s.opts.SkipTLS {
-		progress(StageTLS)
+	if !s.opts.SkipCerts {
+		progress(StageCerts)
 		res.TLSCerts, err = s.grabCerts(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("tls probing: %w", err)

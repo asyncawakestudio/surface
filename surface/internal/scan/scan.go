@@ -15,14 +15,14 @@ import (
 )
 
 // Params are the knobs both front-ends expose. By default every stage runs
-// (subdomains, dns, ipinfo, ports, tls) and the port scan covers all ports.
+// (subdomains, dns, ipdr, ports, certs) and the port scan covers all ports.
 // Set the Skip* fields to turn stages off. Zero values elsewhere mean "engine
 // default", except Domain which is required.
 type Params struct {
 	Domain       string
-	SkipIPInfo   bool
+	SkipIPDR     bool
 	SkipPorts    bool
-	SkipTLS      bool
+	SkipCerts    bool
 	PortType     string // "syn" or "connect"
 	PortSpec     string // naabu port spec, e.g. "-", "1-1000", "80,443"
 	PortRate     int
@@ -43,8 +43,8 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		SubfinderMaxTime:        p.MaxTime,
 		Resolvers:               p.Resolvers,
 		IPInfoToken:             p.IPInfoToken,
-		SkipIPInfo:              p.SkipIPInfo,
-		SkipTLS:                 p.SkipTLS,
+		SkipIPDR:                p.SkipIPDR,
+		SkipCerts:               p.SkipCerts,
 		PortScan:                !p.SkipPorts, // ports run by default
 		PortScanType:            p.PortType,
 		PortScanPorts:           p.PortSpec,
@@ -55,19 +55,19 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 
 // StageNames are the stages a caller may skip. subdomains and dns are
 // foundational (everything depends on them) and cannot be skipped.
-var StageNames = []string{"ipinfo", "ports", "tls"}
+var StageNames = []string{"ipdr", "ports", "certs"}
 
 // ApplySkips sets the Skip* fields from stage names, returning an error for an
 // unknown or non-skippable name.
 func (p *Params) ApplySkips(names []string) error {
 	for _, n := range names {
 		switch n {
-		case "ipinfo":
-			p.SkipIPInfo = true
+		case "ipdr":
+			p.SkipIPDR = true
 		case "ports":
 			p.SkipPorts = true
-		case "tls":
-			p.SkipTLS = true
+		case "certs":
+			p.SkipCerts = true
 		default:
 			return fmt.Errorf("cannot skip %q (skippable stages: %s)", n, strings.Join(StageNames, ", "))
 		}

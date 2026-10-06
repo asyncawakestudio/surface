@@ -8,7 +8,7 @@ Give it a domain and it:
 
 1. **Enumerates subdomains** with [subfinder](https://github.com/projectdiscovery/subfinder) (`-all` passive sources)
 2. **Resolves DNS** with [dnsx](https://github.com/projectdiscovery/dnsx): A, AAAA, CNAME, MX, NS, TXT, CAA
-3. **Looks up every public IP** with [ipinfo.io](https://ipinfo.io) (owner, ASN, geo)
+3. **Builds IP data records (IPDR)** for every public IP via [ipinfo.io](https://ipinfo.io) (owner, ASN, geo)
 4. **Scans ports** with [naabu](https://github.com/projectdiscovery/naabu) (optional; SYN or connect)
 5. **Inspects TLS certificates** with [tlsx](https://github.com/projectdiscovery/tlsx)
 
@@ -24,8 +24,8 @@ returns it. Persistence, the API, and the dashboard live in `../surface-cloud`.
 asm/                 the discovery engine (importable: surface/asm)
   asm.go             Scanner.Run(ctx, Target, progress) -> *Result
   subdomains.go      subfinder stage       dns.go     dnsx stage
-  ipinfo.go          ipinfo.io stage       ports.go   naabu stage
-  tls.go             tlsx stage            diff.go    scan-to-scan diff
+  ipinfo.go          ipdr stage (ipinfo.io) ports.go  naabu stage
+  tls.go             certs stage (tlsx)    diff.go    scan-to-scan diff
 cmd/surface/         CLI (human)
 cmd/surface-mcp/     MCP stdio server (AI)
 internal/scan/       shared params + option building for both front-ends
@@ -38,16 +38,16 @@ make build                            # builds ./bin/surface and ./bin/surface-m
 ./bin/surface example.com                      # full scan, text report to stdout
 ./bin/surface --output=json example.com        # JSON to stdout
 ./bin/surface --output=report.csv example.com  # CSV to a file
-./bin/surface --skip=tls,ports example.com     # skip stages
+./bin/surface --skip=certs,ports example.com   # skip stages
 ```
 
-Just `surface <domain>` runs every stage — subdomains, dns, ipinfo, ports (all
-65535), tls. Flags (before the domain):
+Just `surface <domain>` runs every stage — subdomains, dns, ipdr, ports (all
+65535), certs. Flags (before the domain):
 
 | Flag | Description |
 |------|-------------|
 | `--output=<dest>` | where/how to write results. Empty → `txt` to stdout. A bare format (`txt`, `json`, `csv`, `xml`) → that format to stdout. A file path → format from its extension (`report.json`, `hosts.csv`, `out.xml`) |
-| `--skip=<stages>` | comma-separated stages to skip: `ipinfo`, `ports`, `tls` (subdomains and dns always run) |
+| `--skip=<stages>` | comma-separated stages to skip: `ipdr`, `ports`, `certs` (subdomains and dns always run) |
 | `--quiet` | no progress on stderr |
 | `--ipinfo-token=<tok>` | ipinfo.io API token |
 | `--subfinder-config=<f>` | subfinder `provider-config.yaml` with API keys (defaults to subfinder's own `~/.config` path) |

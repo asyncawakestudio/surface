@@ -2,7 +2,7 @@
 //
 //	surface example.com                 # full scan, human-readable report
 //	surface --json example.com          # machine-readable JSON
-//	surface --skip=tls,ports example.com
+//	surface --skip=certs,ports example.com
 //
 // It runs the same engine the MCP server and the cloud product use.
 package main
@@ -50,14 +50,14 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default every stage runs — subdomains, dns, ipinfo, ports (all 65535), tls.
+By default every stage runs — subdomains, dns, ipdr, ports (all 65535), certs.
 
 Output:
   --output <dest>       where/how to write results (default: txt to stdout).
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipinfo, ports, tls
+  --skip <stages>       comma-separated stages to skip: ipdr, ports, certs
                         (subdomains and dns are always run)
   --quiet               suppress progress logging on stderr
 
@@ -79,7 +79,7 @@ func runScan(args []string) int {
 	fs.Usage = usage
 	var (
 		outDest   = fs.String("output", "", "output destination: a file path (format by extension) or a format name; empty = txt to stdout")
-		skip      = fs.String("skip", "", "comma-separated stages to skip: ipinfo, ports, tls")
+		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, ports, certs")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")

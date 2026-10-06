@@ -123,7 +123,7 @@ var tools = []map[string]any{{
 		"type": "object",
 		"properties": map[string]any{
 			"domain":           map[string]any{"type": "string", "description": "Registrable domain to scan, e.g. example.com"},
-			"skip":             map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"ipinfo", "ports", "tls"}}, "description": "Stages to skip (subdomains and dns always run)"},
+			"skip":             map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"ipdr", "ports", "certs"}}, "description": "Stages to skip (subdomains and dns always run)"},
 			"port_type":        map[string]any{"type": "string", "enum": []string{"syn", "connect"}, "description": "Port scan mode (default connect)"},
 			"port_spec":        map[string]any{"type": "string", "description": `Ports to scan: "-" for all (default), "1-1000", or "80,443"`},
 			"port_rate":        map[string]any{"type": "integer", "description": "Packets/sec for the port scan"},

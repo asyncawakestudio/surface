@@ -55,7 +55,7 @@ func TestRenderCSV(t *testing.T) {
 		"subdomain,old.example.com,,,carried_over,",
 		"dns,www.example.com,,,A,1.2.3.4",
 		"port,,1.2.3.4,443,tcp,open",
-		"ipinfo,,5.6.7.8,,error,HTTP 429",
+		"ipdr,,5.6.7.8,,error,HTTP 429",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("csv missing %q in:\n%s", want, out)
