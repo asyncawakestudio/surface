@@ -16,6 +16,14 @@ services:
       timeout: 3s
       retries: 20
 
+  # Dev mail catcher: accepts all SMTP and shows it at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"   # web inbox
+      - "1025:1025"   # SMTP
+    restart: unless-stopped
+
   server:
     build:
       context: ../..
@@ -45,6 +53,19 @@ services:
       PORT_SCAN_RATE: ${PORT_SCAN_RATE:-5000}
       PORT_SCAN_RETRIES: ${PORT_SCAN_RETRIES:-2}
       PORT_SCAN_PORTS: ${PORT_SCAN_PORTS:--}
+      # --- Email OTP login ---
+      # Dev defaults to the local Mailpit catcher (see the `mailpit` service):
+      # every login email is captured and viewable at http://localhost:8025 —
+      # nothing leaves your machine. Override via devops/.env to use a real
+      # provider (e.g. Mailtrap/Mailjet).
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@surface.local}
+      SMTP_TLS: ${SMTP_TLS:-none}
+      COOKIE_SECURE: "false"
+      APP_NAME: Surface
     ports:
       - "8080:8080"
     working_dir: /src/surface-cloud/server
@@ -57,6 +78,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     # The first boot compiles the whole dependency tree, which can take a few
     # minutes; the client waits for this instead of logging proxy errors.
     healthcheck:

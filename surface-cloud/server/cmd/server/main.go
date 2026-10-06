@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"surface-cloud/internal/api"
+	"surface-cloud/internal/email"
 	"surface-cloud/internal/store"
 	"surface/asm"
 )
@@ -64,7 +65,18 @@ func run(logger *slog.Logger) error {
 		time.Duration(envInt("SCAN_TIMEOUT_MINUTES", 30))*time.Minute,
 	)
 
-	apiHandler := api.New(st, jobs, logger)
+	mailer := email.FromEnv(email.Config{
+		Host: os.Getenv("SMTP_HOST"),
+		Port: os.Getenv("SMTP_PORT"),
+		User: os.Getenv("SMTP_USERNAME"),
+		Pass: os.Getenv("SMTP_PASSWORD"),
+		From: os.Getenv("SMTP_FROM"),
+		TLS:  os.Getenv("SMTP_TLS"),
+	}, logger)
+	apiHandler := api.New(st, jobs, logger, api.WithAuth(st, mailer, api.AuthConfig{
+		Secure:  envBool("COOKIE_SECURE", false),
+		AppName: envString("APP_NAME", "Surface"),
+	}))
 	scheduler := apiHandler.NewScheduler(time.Minute)
 	scheduler.Start()
 

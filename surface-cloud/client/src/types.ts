@@ -160,3 +160,10 @@ export type ScanConfigInput = Omit<
   ScanConfig,
   "id" | "created_at" | "updated_at" | "last_run_at" | "next_run_at"
 >;
+
+export interface User {
+  id: number;
+  email: string;
+  created_at: string;
+  last_login_at: string | null;
+}

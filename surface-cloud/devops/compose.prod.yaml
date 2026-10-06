@@ -52,6 +52,17 @@ services:
       PORT_SCAN_RATE: ${PORT_SCAN_RATE:-5000}
       PORT_SCAN_RETRIES: ${PORT_SCAN_RETRIES:-2}
       PORT_SCAN_PORTS: ${PORT_SCAN_PORTS:--}
+      # --- Email OTP login (ProtonMail via Proton Mail Bridge) ---
+      # The Bridge exposes SMTP on 127.0.0.1:1025 (STARTTLS) with a
+      # bridge-generated username/password. Set these in devops/.env.
+      SMTP_HOST: ${SMTP_HOST:-127.0.0.1}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      APP_NAME: Surface
     volumes:
       - ./config:/config:ro
     depends_on:

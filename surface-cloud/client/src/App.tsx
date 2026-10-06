@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { api } from "./api";
+import { useEffect, useState } from "react";
+import { api, ApiError } from "./api";
 import { usePoll } from "./hooks";
-import { isActive, type Domain, type Scan, type ScanDetail, type ScanDiff } from "./types";
+import { isActive, type Domain, type Scan, type ScanDetail, type ScanDiff, type User } from "./types";
 import ScanForm from "./components/ScanForm";
 import ConfigManager from "./components/ConfigManager";
+import Login from "./components/Login";
 import DomainList from "./components/DomainList";
 import ScanHistory from "./components/ScanHistory";
 import ScanDetailView from "./components/ScanDetail";
@@ -18,10 +19,36 @@ export default function App() {
   const [diff, setDiff] = useState<ScanDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showConfigs, setShowConfigs] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    api
+      .me()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // ignore
+    }
+    setUser(null);
+  };
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = () => setRefreshKey((k) => k + 1);
-  const onError = (e: Error) => setError(e.message);
+  const onError = (e: Error) => {
+    // A 401 means the session ended; drop to the login screen.
+    if (e instanceof ApiError && e.status === 401) {
+      setUser(null);
+      return;
+    }
+    setError(e.message);
+  };
 
   const anyActive = domains.some((d) => isActive(d.latest));
   const selectedScanId = pinnedScanId ?? scans[0]?.id ?? null;
@@ -108,6 +135,13 @@ export default function App() {
     }
   };
 
+  if (!authChecked) {
+    return <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading…</div>;
+  }
+  if (!user) {
+    return <Login onAuthed={setUser} />;
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur">
@@ -130,6 +164,12 @@ export default function App() {
             >
               Configured scans
             </button>
+            <div className="flex flex-col items-end gap-1">
+              <span className="max-w-40 truncate text-xs text-slate-400" title={user.email}>{user.email}</span>
+              <button onClick={logout} className="text-xs text-slate-400 hover:text-rose-300">
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       </header>

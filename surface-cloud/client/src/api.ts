@@ -1,13 +1,22 @@
-import type { Domain, Scan, ScanConfig, ScanConfigInput, ScanDetail, ScanDiff } from "./types";
+import type { Domain, Scan, ScanConfig, ScanConfigInput, ScanDetail, ScanDiff, User } from "./types";
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.error ?? `Request failed (${res.status})`);
+    throw new ApiError(res.status, body?.error ?? `Request failed (${res.status})`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -34,4 +43,14 @@ export const api = {
     request<void>(`/api/configs/${id}`, { method: "DELETE" }),
   runConfig: (id: number) =>
     request<{ started: number; domains: number }>(`/api/configs/${id}/run`, { method: "POST" }),
+
+  me: () => request<User>("/api/auth/me"),
+  requestCode: (email: string) =>
+    request<{ sent: boolean; expires_in_minutes: number }>("/api/auth/request", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  verifyCode: (email: string, code: string) =>
+    request<User>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code }) }),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
 };

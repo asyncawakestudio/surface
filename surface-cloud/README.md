@@ -66,6 +66,23 @@ default.
 | GET/PUT/DELETE | `/api/configs/{id}` | Read, update, or delete a configuration |
 | POST | `/api/configs/{id}/run` | Run a configuration now (one scan per domain) |
 
+## Authentication
+
+Access requires signing in with an **email one-time code**. The flow:
+
+1. `POST /api/auth/request {email}` — the server generates a 6-digit code, stores its hash (10-min expiry), and emails it.
+2. `POST /api/auth/verify {email, code}` — on success it creates the user if needed, starts a session, and sets an `HttpOnly` session cookie.
+3. `GET /api/auth/me` returns the current user; `POST /api/auth/logout` ends the session.
+
+Every `/api` route except `/api/auth/*` and `/healthz` requires a valid session. Codes are attempt-limited (5) and resends are throttled (60s).
+
+Email is sent over **SMTP**, configured entirely via `SMTP_*` env vars, so the provider differs only by configuration:
+
+- **Development:** a Mailtrap/Mailjet sandbox (`devops/.env`). With `SMTP_HOST` empty the server just **logs** the code (`make logs`), so login works with no mail setup.
+- **Production:** **ProtonMail** has no public SMTP — run **[Proton Mail Bridge](https://proton.me/mail/bridge)** on the host; it exposes SMTP on `127.0.0.1:1025` (STARTTLS) with a bridge-generated username/password. Point `SMTP_*` at it. (The Bridge must be reachable from the server process; `compose.prod.yaml` uses host networking, so `127.0.0.1` is the host.)
+
+See `devops/.env.example`.
+
 ## Scan configurations
 
 Besides ad-hoc **quick scans** (`POST /api/scans`), you can save **scan configurations**: a named set of target domains, a schedule (manual / daily / weekly / monthly at a time in an IANA timezone), and which stages to run (IPDR, ports, certs — subdomains and DNS always run). A built-in scheduler fans each due configuration out to one scan per domain, skipping any domain already being scanned. Configs are editable and are managed from the dashboard's **Configured scans** panel or the `/api/configs` endpoints.
@@ -87,6 +104,9 @@ Besides ad-hoc **quick scans** (`POST /api/scans`), you can save **scan configur
 | `PORT_SCAN_RETRIES` | `2` | Retry passes |
 | `PORT_SCAN_PORTS` | `-` | Port spec (`-` = all 65535) |
 | `STATIC_DIR` | — | Serve the built client from this dir (set in the prod image) |
+| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM`/`SMTP_TLS` | — | SMTP for login-code email. Empty `SMTP_HOST` logs codes instead of sending (dev). `SMTP_TLS` is `starttls` (default) or `implicit` |
+| `COOKIE_SECURE` | `false` | Set `true` in production (HTTPS) so the session cookie is `Secure` |
+| `APP_NAME` | `Surface` | Name shown in login emails |
 
 See [`../surface`](../surface) for the engine, CLI, and MCP server.
 

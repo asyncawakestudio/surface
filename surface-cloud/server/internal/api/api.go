@@ -47,29 +47,47 @@ type API struct {
 	store  Store
 	jobs   *Jobs
 	logger *slog.Logger
+	auth   *authState // nil = authentication disabled
 }
 
-func New(st Store, jobs *Jobs, logger *slog.Logger) *API {
-	return &API{store: st, jobs: jobs, logger: logger}
+func New(st Store, jobs *Jobs, logger *slog.Logger, opts ...Option) *API {
+	a := &API{store: st, jobs: jobs, logger: logger}
+	for _, opt := range opts {
+		opt(a)
+	}
+	return a
 }
 
-// Handler returns the routed HTTP handler.
+// Handler returns the routed HTTP handler. When auth is enabled every /api
+// route except /api/auth/* requires a valid session.
 func (a *API) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", a.health)
-	mux.HandleFunc("POST /api/scans", a.createScan)
-	mux.HandleFunc("GET /api/scans", a.listScans)
-	mux.HandleFunc("GET /api/scans/{id}", a.getScan)
-	mux.HandleFunc("GET /api/scans/{id}/diff", a.diffScan)
-	mux.HandleFunc("POST /api/scans/{id}/pause", a.pauseScan)
-	mux.HandleFunc("GET /api/domains", a.listDomains)
-	mux.HandleFunc("GET /api/configs", a.listConfigs)
-	mux.HandleFunc("POST /api/configs", a.createConfig)
-	mux.HandleFunc("GET /api/configs/{id}", a.getConfig)
-	mux.HandleFunc("PUT /api/configs/{id}", a.updateConfig)
-	mux.HandleFunc("DELETE /api/configs/{id}", a.deleteConfig)
-	mux.HandleFunc("POST /api/configs/{id}/run", a.runConfig)
-	return logRequests(a.logger, mux)
+	api := http.NewServeMux()
+	api.HandleFunc("POST /api/scans", a.createScan)
+	api.HandleFunc("GET /api/scans", a.listScans)
+	api.HandleFunc("GET /api/scans/{id}", a.getScan)
+	api.HandleFunc("GET /api/scans/{id}/diff", a.diffScan)
+	api.HandleFunc("POST /api/scans/{id}/pause", a.pauseScan)
+	api.HandleFunc("GET /api/domains", a.listDomains)
+	api.HandleFunc("GET /api/configs", a.listConfigs)
+	api.HandleFunc("POST /api/configs", a.createConfig)
+	api.HandleFunc("GET /api/configs/{id}", a.getConfig)
+	api.HandleFunc("PUT /api/configs/{id}", a.updateConfig)
+	api.HandleFunc("DELETE /api/configs/{id}", a.deleteConfig)
+	api.HandleFunc("POST /api/configs/{id}/run", a.runConfig)
+
+	root := http.NewServeMux()
+	root.HandleFunc("GET /healthz", a.health)
+
+	var protected http.Handler = api
+	if a.auth != nil {
+		protected = a.requireAuth(api)
+		root.HandleFunc("POST /api/auth/request", a.authRequest)
+		root.HandleFunc("POST /api/auth/verify", a.authVerify)
+		root.HandleFunc("GET /api/auth/me", a.authMe)
+		root.HandleFunc("POST /api/auth/logout", a.authLogout)
+	}
+	root.Handle("/api/", protected)
+	return logRequests(a.logger, root)
 }
 
 func (a *API) health(w http.ResponseWriter, r *http.Request) {
