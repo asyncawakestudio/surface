@@ -19,12 +19,12 @@ import ChangesPanel, { changeCount } from "./ChangesPanel";
 const STAGES = [
   { key: "subdomains", label: "Subdomains", tool: "subfinder" },
   { key: "dns", label: "DNS", tool: "dnsx" },
-  { key: "ipinfo", label: "IPDR", tool: "ipinfo.io" },
+  { key: "ipdr", label: "IPDR", tool: "ipinfo.io" },
   { key: "ports", label: "Ports", tool: "naabu" },
-  { key: "tls", label: "TLS", tool: "tlsx" },
+  { key: "certs", label: "Certs", tool: "tlsx" },
 ] as const;
 
-type Tab = "changes" | "subdomains" | "dns" | "ipdr" | "ports" | "tls";
+type Tab = "changes" | "subdomains" | "dns" | "ipdr" | "ports" | "certs";
 type Compared = Extract<ScanDiff, { base: Scan }>;
 
 interface Props {
@@ -157,7 +157,7 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
           delta={diff && [diff.dns_records.added.length, diff.dns_records.removed.length]}
         />
         <Stat
-          label="TLS certificates"
+          label="Certificates"
           value={scan.tls_certs.length}
           delta={diff && [diff.tls_certs.added.length, diff.tls_certs.removed.length]}
         />
@@ -174,7 +174,7 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
                 ["dns", "DNS records", scan.dns_records.length],
                 ["ipdr", "IPDR", ipInfo.length],
                 ["ports", "Open ports", portScans.reduce((n, p) => n + p.ports.length, 0)],
-                ["tls", "TLS certificates", scan.tls_certs.length],
+                ["certs", "Certificates", scan.tls_certs.length],
               ] as const
             ).map(([key, label, count]) => (
               <button
@@ -216,7 +216,7 @@ export default function ScanDetail({ scan, diff, isLatest, onPause, onScanAgain 
               changed={added.ipsChanged}
             />}
           {tab === "ports" && <PortsTable scans={portScans} />}
-          {tab === "tls" && <CertTable certs={scan.tls_certs} added={added.certs} />}
+          {tab === "certs" && <CertTable certs={scan.tls_certs} added={added.certs} />}
         </section>
       )}
     </div>

@@ -75,7 +75,7 @@ export default function ChangesPanel({ diff }: { diff: Compared }) {
       </Section>
 
       <Section
-        title="TLS certificates"
+        title="Certificates"
         added={tls_certs.added.length}
         removed={tls_certs.removed.length}
         changed={tls_certs.changed.length}
