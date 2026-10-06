@@ -158,9 +158,9 @@ func (s *Store) migrate(ctx context.Context) error {
 
 // CreateScan inserts a queued scan for domain. It returns ErrConflict if
 // the domain already has a queued or running scan.
-func (s *Store) CreateScan(ctx context.Context, domain string) (*Scan, error) {
+func (s *Store) CreateScan(ctx context.Context, domain string, configID *int64) (*Scan, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO scans (domain) VALUES ($1) RETURNING `+scanColumns, domain)
+		`INSERT INTO scans (domain, config_id) VALUES ($1, $2) RETURNING `+scanColumns, domain, configID)
 	sc, err := scanRow(row)
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok &&
 		pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "scans_one_active_per_domain" {

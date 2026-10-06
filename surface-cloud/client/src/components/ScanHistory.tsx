@@ -1,12 +1,23 @@
 import type { Scan, ScanStatus } from "../types";
 
-const dot: Record<ScanStatus, string> = {
-  queued: "bg-slate-400",
-  running: "bg-cyan-400 animate-pulse",
-  paused: "bg-amber-400",
-  completed: "bg-emerald-400",
-  failed: "bg-rose-400",
+const statusMark: Record<ScanStatus, string> = {
+  queued: "·",
+  running: "…",
+  paused: "‖",
+  completed: "✓",
+  failed: "✕",
 };
+
+function labelFor(s: Scan, latest: boolean): string {
+  const when = new Date(s.created_at).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${statusMark[s.status]} ${when} — ${s.status}${latest ? " (latest)" : ""}`;
+}
 
 interface Props {
   scans: Scan[]; // newest first
@@ -16,34 +27,25 @@ interface Props {
 
 export default function ScanHistory({ scans, selectedId, onSelect }: Props) {
   return (
-    <nav aria-label="Scan history">
-      <h3 className="mb-2 text-xs font-semibold tracking-wider text-slate-500 uppercase">
+    <div className="flex items-center gap-3">
+      <label htmlFor="scan-history" className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
         History
-      </h3>
-      <ol className="flex gap-2 overflow-x-auto pb-1">
+      </label>
+      <select
+        id="scan-history"
+        value={selectedId ?? ""}
+        onChange={(e) => onSelect(Number(e.target.value))}
+        className="max-w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none"
+      >
         {scans.map((s, i) => (
-          <li key={s.id} className="shrink-0">
-            <button
-              onClick={() => onSelect(s.id)}
-              title={s.status}
-              className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition ${
-                s.id === selectedId
-                  ? "border-cyan-700 bg-cyan-950/40 text-white"
-                  : "border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
-              }`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${dot[s.status]}`} />
-              {new Date(s.created_at).toLocaleString(undefined, {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              {i === 0 && <span className="text-slate-500">latest</span>}
-            </button>
-          </li>
+          <option key={s.id} value={s.id}>
+            {labelFor(s, i === 0)}
+          </option>
         ))}
-      </ol>
-    </nav>
+      </select>
+      <span className="text-xs text-slate-500">
+        {scans.length} scan{scans.length === 1 ? "" : "s"}
+      </span>
+    </div>
   );
 }

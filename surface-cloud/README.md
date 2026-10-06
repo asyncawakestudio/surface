@@ -62,6 +62,13 @@ default.
 | POST | `/api/scans/{id}/pause` | Stop a queued/running scan (kept as `paused`) |
 | GET | `/api/domains` | Each scanned domain with its latest scan |
 | GET | `/healthz` | Liveness + DB check |
+| GET/POST | `/api/configs` | List or create scan configurations |
+| GET/PUT/DELETE | `/api/configs/{id}` | Read, update, or delete a configuration |
+| POST | `/api/configs/{id}/run` | Run a configuration now (one scan per domain) |
+
+## Scan configurations
+
+Besides ad-hoc **quick scans** (`POST /api/scans`), you can save **scan configurations**: a named set of target domains, a schedule (manual / daily / weekly / monthly at a time in an IANA timezone), and which stages to run (IPDR, ports, certs — subdomains and DNS always run). A built-in scheduler fans each due configuration out to one scan per domain, skipping any domain already being scanned. Configs are editable and are managed from the dashboard's **Configured scans** panel or the `/api/configs` endpoints.
 
 ## Configuration
 

@@ -44,8 +44,8 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 	if err := s.pool.QueryRow(context.Background(), `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 6 {
-		t.Fatalf("schema_migrations rows = %d, want 6", n)
+	if n != 7 {
+		t.Fatalf("schema_migrations rows = %d, want 7", n)
 	}
 }
 
@@ -53,11 +53,11 @@ func TestScanHistory(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	first, err := s.CreateScan(ctx, "example.com")
+	first, err := s.CreateScan(ctx, "example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateScan(ctx, "example.com"); !errors.Is(err, ErrConflict) {
+	if _, err := s.CreateScan(ctx, "example.com", nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate active scan: err = %v, want ErrConflict", err)
 	}
 	must(t, s.MarkRunning(ctx, first.ID))
@@ -74,20 +74,20 @@ func TestScanHistory(t *testing.T) {
 
 	// A second scan of the same domain is allowed once the first finished.
 	time.Sleep(10 * time.Millisecond) // distinct created_at
-	paused, err := s.CreateScan(ctx, "example.com")
+	paused, err := s.CreateScan(ctx, "example.com", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	must(t, s.MarkPaused(ctx, paused.ID))
 
 	time.Sleep(10 * time.Millisecond)
-	latest, err := s.CreateScan(ctx, "example.com")
+	latest, err := s.CreateScan(ctx, "example.com", nil)
 	if err != nil {
 		t.Fatalf("scan after pause: %v", err)
 	}
 	must(t, s.SaveResult(ctx, latest.ID, &asm.Result{}))
 
-	other, err := s.CreateScan(ctx, "other.example.org")
+	other, err := s.CreateScan(ctx, "other.example.org", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestKnownSubdomains(t *testing.T) {
 
 	scan := func(domain string, subs ...asm.Subdomain) {
 		t.Helper()
-		sc, err := s.CreateScan(ctx, domain)
+		sc, err := s.CreateScan(ctx, domain, nil)
 		must(t, err)
 		must(t, s.SaveResult(ctx, sc.ID, &asm.Result{Subdomains: subs}))
 	}
@@ -156,7 +156,7 @@ func TestKnownSubdomains(t *testing.T) {
 	scan("other.example.org", asm.Subdomain{Host: "x.other.example.org"})
 
 	// A later paused scan's (absent) results don't count, and neither do other domains.
-	paused, err := s.CreateScan(ctx, "example.com")
+	paused, err := s.CreateScan(ctx, "example.com", nil)
 	must(t, err)
 	must(t, s.MarkPaused(ctx, paused.ID))
 
@@ -189,7 +189,7 @@ func TestIPInfoRoundTrip(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	sc, err := s.CreateScan(ctx, "example.com")
+	sc, err := s.CreateScan(ctx, "example.com", nil)
 	must(t, err)
 	raw := `{"ip":"93.184.215.14","city":"Los Angeles","asn":{"asn":"AS15133","name":"Edgecast"}}`
 	must(t, s.SaveResult(ctx, sc.ID, &asm.Result{IPInfo: []asm.IPInfo{
@@ -224,7 +224,7 @@ func TestPortScanRoundTrip(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	sc, err := s.CreateScan(ctx, "example.com")
+	sc, err := s.CreateScan(ctx, "example.com", nil)
 	must(t, err)
 	must(t, s.SaveResult(ctx, sc.ID, &asm.Result{PortScans: []asm.PortScan{
 		{IP: "93.184.215.14", Hosts: []string{"a.example.com", "b.example.com"}, Ports: []asm.OpenPort{

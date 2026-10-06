@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"surface-cloud/internal/store"
+
 	"surface/asm"
 )
 
@@ -42,12 +44,14 @@ func (jb *job) stopReason() stopReason {
 	return jb.reason
 }
 
-// Jobs runs scans in the background with bounded concurrency.
+// Jobs runs scans in the background with bounded concurrency. Each scan gets
+// a scanner built from the base options overlaid with its per-scan options.
 type Jobs struct {
-	store   Store
-	scanner Scanner
-	logger  *slog.Logger
-	timeout time.Duration
+	store      Store
+	newScanner func(asm.Options) Scanner
+	base       asm.Options
+	logger     *slog.Logger
+	timeout    time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -59,23 +63,25 @@ type Jobs struct {
 }
 
 // NewJobs creates a job runner allowing maxConcurrent scans at once, each
-// limited to timeout.
-func NewJobs(st Store, sc Scanner, logger *slog.Logger, maxConcurrent int, timeout time.Duration) *Jobs {
+// limited to timeout. newScanner builds a scanner from merged options; base is
+// the server-wide default options (API keys, resolvers, defaults).
+func NewJobs(st Store, newScanner func(asm.Options) Scanner, base asm.Options, logger *slog.Logger, maxConcurrent int, timeout time.Duration) *Jobs {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Jobs{
-		store:   st,
-		scanner: sc,
-		logger:  logger,
-		timeout: timeout,
-		ctx:     ctx,
-		cancel:  cancel,
-		sem:     make(chan struct{}, maxConcurrent),
-		active:  make(map[int64]*job),
+		store:      st,
+		newScanner: newScanner,
+		base:       base,
+		logger:     logger,
+		timeout:    timeout,
+		ctx:        ctx,
+		cancel:     cancel,
+		sem:        make(chan struct{}, maxConcurrent),
+		active:     make(map[int64]*job),
 	}
 }
 
-// Submit queues a scan. It returns immediately.
-func (j *Jobs) Submit(id int64, domain string) {
+// Submit queues a scan with the given per-scan options. It returns immediately.
+func (j *Jobs) Submit(id int64, domain string, opts store.ScanOptions) {
 	ctx, cancel := context.WithCancel(j.ctx)
 	jb := &job{cancel: cancel, done: make(chan struct{})}
 
@@ -106,8 +112,25 @@ func (j *Jobs) Submit(id int64, domain string) {
 			j.finishCancelled(id, jb)
 			return
 		}
-		j.run(ctx, id, domain, jb)
+		j.run(ctx, id, domain, opts, jb)
 	}()
+}
+
+// mergeOptions overlays per-scan options on the server defaults.
+func mergeOptions(base asm.Options, o store.ScanOptions) asm.Options {
+	base.SkipIPDR = o.SkipIPDR
+	base.SkipCerts = o.SkipCerts
+	base.PortScan = base.PortScan && !o.SkipPorts
+	if o.PortType != "" {
+		base.PortScanType = o.PortType
+	}
+	if o.PortSpec != "" {
+		base.PortScanPorts = o.PortSpec
+	}
+	if o.PortRate != 0 {
+		base.PortScanRate = o.PortRate
+	}
+	return base
 }
 
 // Active reports whether a scan is queued or running in this process.
@@ -147,8 +170,9 @@ func (j *Jobs) Shutdown() {
 	j.wg.Wait()
 }
 
-func (j *Jobs) run(ctx context.Context, id int64, domain string, jb *job) {
+func (j *Jobs) run(ctx context.Context, id int64, domain string, opts store.ScanOptions, jb *job) {
 	log := j.logger.With("scan_id", id, "domain", domain)
+	scanner := j.newScanner(mergeOptions(j.base, opts))
 	ctx, cancel := context.WithTimeout(ctx, j.timeout)
 	defer cancel()
 
@@ -172,7 +196,7 @@ func (j *Jobs) run(ctx context.Context, id int64, domain string, jb *job) {
 	log.Info("scan started", "known_subdomains", len(known))
 	start := time.Now()
 
-	res, err := j.scanner.Run(ctx, asm.Target{Domain: domain, KnownSubdomains: known}, func(stage asm.Stage) {
+	res, err := scanner.Run(ctx, asm.Target{Domain: domain, KnownSubdomains: known}, func(stage asm.Stage) {
 		log.Info("scan stage", "stage", stage)
 		if err := j.store.SetStage(bg, id, string(stage)); err != nil {
 			log.Warn("set stage", "err", err)

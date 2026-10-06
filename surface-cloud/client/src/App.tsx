@@ -3,6 +3,7 @@ import { api } from "./api";
 import { usePoll } from "./hooks";
 import { isActive, type Domain, type Scan, type ScanDetail, type ScanDiff } from "./types";
 import ScanForm from "./components/ScanForm";
+import ConfigManager from "./components/ConfigManager";
 import DomainList from "./components/DomainList";
 import ScanHistory from "./components/ScanHistory";
 import ScanDetailView from "./components/ScanDetail";
@@ -16,6 +17,7 @@ export default function App() {
   const [detail, setDetail] = useState<ScanDetail | null>(null);
   const [diff, setDiff] = useState<ScanDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showConfigs, setShowConfigs] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = () => setRefreshKey((k) => k + 1);
@@ -117,9 +119,22 @@ export default function App() {
               <p className="text-xs text-slate-400">How exposed are you?</p>
             </div>
           </div>
-          <ScanForm onCreated={handleCreated} />
+          <div className="flex items-end gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold tracking-wider text-slate-500 uppercase">Quick scan</span>
+              <ScanForm onCreated={handleCreated} />
+            </div>
+            <button
+              onClick={() => setShowConfigs(true)}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-600 hover:text-white"
+            >
+              Configured scans
+            </button>
+          </div>
         </div>
       </header>
+
+      {showConfigs && <ConfigManager onClose={() => setShowConfigs(false)} />}
 
       {error && (
         <div className="flex items-center justify-between border-b border-rose-900/50 bg-rose-950/40 px-6 py-2 text-sm text-rose-300">

@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"surface/asm"
 	"surface-cloud/internal/store"
+	"surface/asm"
 )
 
 // Scanner is the attack surface pipeline (implemented by *asm.Scanner).
@@ -22,7 +22,7 @@ type Scanner interface {
 // Store is the persistence layer (implemented by *store.Store).
 type Store interface {
 	Ping(ctx context.Context) error
-	CreateScan(ctx context.Context, domain string) (*store.Scan, error)
+	CreateScan(ctx context.Context, domain string, configID *int64) (*store.Scan, error)
 	MarkRunning(ctx context.Context, id int64) error
 	SetStage(ctx context.Context, id int64, stage string) error
 	MarkFailed(ctx context.Context, id int64, msg string) error
@@ -33,6 +33,14 @@ type Store interface {
 	GetScan(ctx context.Context, id int64) (*store.ScanDetail, error)
 	PreviousCompleted(ctx context.Context, id int64) (*store.ScanDetail, error)
 	KnownSubdomains(ctx context.Context, domain string) ([]asm.Subdomain, error)
+
+	CreateConfig(ctx context.Context, c *store.ScanConfig) (*store.ScanConfig, error)
+	UpdateConfig(ctx context.Context, c *store.ScanConfig) (*store.ScanConfig, error)
+	GetConfig(ctx context.Context, id int64) (*store.ScanConfig, error)
+	ListConfigs(ctx context.Context) ([]store.ScanConfig, error)
+	DeleteConfig(ctx context.Context, id int64) error
+	DueConfigs(ctx context.Context, now time.Time) ([]store.ScanConfig, error)
+	MarkConfigRan(ctx context.Context, id int64, ran time.Time) error
 }
 
 type API struct {
@@ -55,6 +63,12 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/scans/{id}/diff", a.diffScan)
 	mux.HandleFunc("POST /api/scans/{id}/pause", a.pauseScan)
 	mux.HandleFunc("GET /api/domains", a.listDomains)
+	mux.HandleFunc("GET /api/configs", a.listConfigs)
+	mux.HandleFunc("POST /api/configs", a.createConfig)
+	mux.HandleFunc("GET /api/configs/{id}", a.getConfig)
+	mux.HandleFunc("PUT /api/configs/{id}", a.updateConfig)
+	mux.HandleFunc("DELETE /api/configs/{id}", a.deleteConfig)
+	mux.HandleFunc("POST /api/configs/{id}/run", a.runConfig)
 	return logRequests(a.logger, mux)
 }
 
@@ -82,7 +96,7 @@ func (a *API) createScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scan, err := a.store.CreateScan(r.Context(), domain)
+	scan, err := a.store.CreateScan(r.Context(), domain, nil)
 	if errors.Is(err, store.ErrConflict) {
 		writeError(w, http.StatusConflict, "a scan of this domain is already in progress")
 		return
@@ -91,7 +105,7 @@ func (a *API) createScan(w http.ResponseWriter, r *http.Request) {
 		a.internalError(w, "create scan", err)
 		return
 	}
-	a.jobs.Submit(scan.ID, domain)
+	a.jobs.Submit(scan.ID, domain, store.ScanOptions{}) // quick scan: full, server defaults
 	writeJSON(w, http.StatusAccepted, scan)
 }
 

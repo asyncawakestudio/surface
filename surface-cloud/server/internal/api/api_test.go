@@ -15,23 +15,25 @@ import (
 	"testing"
 	"time"
 
-	"surface/asm"
 	"surface-cloud/internal/store"
+	"surface/asm"
 )
 
 type fakeStore struct {
-	mu     sync.Mutex
-	nextID int64
-	scans  map[int64]*store.ScanDetail
+	mu        sync.Mutex
+	nextID    int64
+	nextCfgID int64
+	scans     map[int64]*store.ScanDetail
+	configs   map[int64]*store.ScanConfig
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{scans: map[int64]*store.ScanDetail{}}
+	return &fakeStore{scans: map[int64]*store.ScanDetail{}, configs: map[int64]*store.ScanConfig{}}
 }
 
 func (f *fakeStore) Ping(context.Context) error { return nil }
 
-func (f *fakeStore) CreateScan(_ context.Context, domain string) (*store.Scan, error) {
+func (f *fakeStore) CreateScan(_ context.Context, domain string, _ *int64) (*store.Scan, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, d := range f.scans {
@@ -149,6 +151,64 @@ func (f *fakeStore) KnownSubdomains(_ context.Context, domain string) ([]asm.Sub
 	return append([]asm.Subdomain(nil), latest.Subdomains...), nil
 }
 
+func (f *fakeStore) CreateConfig(_ context.Context, c *store.ScanConfig) (*store.ScanConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextCfgID++
+	c.ID = f.nextCfgID
+	cp := *c
+	f.configs[c.ID] = &cp
+	return &cp, nil
+}
+
+func (f *fakeStore) UpdateConfig(_ context.Context, c *store.ScanConfig) (*store.ScanConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.configs[c.ID]; !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *c
+	f.configs[c.ID] = &cp
+	return &cp, nil
+}
+
+func (f *fakeStore) GetConfig(_ context.Context, id int64) (*store.ScanConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.configs[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *c
+	return &cp, nil
+}
+
+func (f *fakeStore) ListConfigs(context.Context) ([]store.ScanConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []store.ScanConfig{}
+	for _, c := range f.configs {
+		out = append(out, *c)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) DeleteConfig(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.configs[id]; !ok {
+		return store.ErrNotFound
+	}
+	delete(f.configs, id)
+	return nil
+}
+
+func (f *fakeStore) DueConfigs(context.Context, time.Time) ([]store.ScanConfig, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) MarkConfigRan(context.Context, int64, time.Time) error { return nil }
+
 func (f *fakeStore) status(id int64) store.Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -203,7 +263,7 @@ func newTestAPI(t *testing.T, sc Scanner) (*fakeStore, *Jobs, http.Handler) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	st := newFakeStore()
-	jobs := NewJobs(st, sc, logger, 2, time.Minute)
+	jobs := NewJobs(st, func(asm.Options) Scanner { return sc }, asm.Options{}, logger, 2, time.Minute)
 	t.Cleanup(jobs.Shutdown)
 	return st, jobs, New(st, jobs, logger).Handler()
 }
@@ -344,7 +404,7 @@ func TestPauseQueuedScan(t *testing.T) {
 	sc := &fakeScanner{started: make(chan struct{}, 1)}
 	sc.block.Store(true)
 	st := newFakeStore()
-	jobs := NewJobs(st, sc, logger, 1, time.Minute) // one slot: second scan queues
+	jobs := NewJobs(st, func(asm.Options) Scanner { return sc }, asm.Options{}, logger, 1, time.Minute) // one slot: second scan queues
 	t.Cleanup(jobs.Shutdown)
 	h := New(st, jobs, logger).Handler()
 

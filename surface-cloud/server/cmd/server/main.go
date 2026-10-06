@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"surface-cloud/internal/api"
-	"surface/asm"
 	"surface-cloud/internal/store"
+	"surface/asm"
 )
 
 func main() {
@@ -46,7 +46,8 @@ func run(logger *slog.Logger) error {
 		logger.Warn("marked interrupted scans as failed", "count", n)
 	}
 
-	scanner := asm.New(asm.Options{
+	// Server-wide defaults; per-scan options (from a config) are overlaid per run.
+	baseOpts := asm.Options{
 		SubfinderProviderConfig: os.Getenv("SUBFINDER_PROVIDER_CONFIG"),
 		Resolvers:               envList("DNS_RESOLVERS"),
 		IPInfoToken:             os.Getenv("IPINFO_TOKEN"),
@@ -56,13 +57,18 @@ func run(logger *slog.Logger) error {
 		PortScanRate:            envInt("PORT_SCAN_RATE", 0),    // 0 -> package default
 		PortScanRetries:         envInt("PORT_SCAN_RETRIES", 0), // 0 -> package default
 		Logger:                  logger,
-	})
-	jobs := api.NewJobs(st, scanner, logger,
+	}
+	newScanner := func(o asm.Options) api.Scanner { return asm.New(o) }
+	jobs := api.NewJobs(st, newScanner, baseOpts, logger,
 		envInt("MAX_CONCURRENT_SCANS", 2),
 		time.Duration(envInt("SCAN_TIMEOUT_MINUTES", 30))*time.Minute,
 	)
 
-	handler := api.New(st, jobs, logger).Handler()
+	apiHandler := api.New(st, jobs, logger)
+	scheduler := apiHandler.NewScheduler(time.Minute)
+	scheduler.Start()
+
+	handler := apiHandler.Handler()
 	// In production the server also serves the built client; in development
 	// Vite serves it and proxies /api here.
 	if dir := os.Getenv("STATIC_DIR"); dir != "" {
@@ -97,6 +103,7 @@ func run(logger *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err = srv.Shutdown(shutdownCtx)
+	scheduler.Stop()
 	jobs.Shutdown()
 	return err
 }

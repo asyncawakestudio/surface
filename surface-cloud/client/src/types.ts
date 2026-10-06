@@ -126,3 +126,37 @@ export const isActive = (s: Pick<Scan, "status">) =>
 
 export const dnsKey = (r: DnsRecord) => `${r.host}\u0000${r.type}\u0000${r.value}`;
 export const certKey = (c: Pick<TlsCert, "host" | "port">) => `${c.host}:${c.port}`;
+
+export type Frequency = "manual" | "daily" | "weekly" | "monthly";
+
+export interface ScanOptions {
+  skip_ipdr: boolean;
+  skip_ports: boolean;
+  skip_certs: boolean;
+  port_type: string; // "", "syn", "connect"
+  port_spec: string; // "", "-", "1-1000", "80,443"
+  port_rate: number;
+}
+
+export interface ScanConfig {
+  id: number;
+  name: string;
+  domains: string[];
+  frequency: Frequency;
+  time_of_day: string; // "HH:MM"
+  weekday: number | null; // 0..6 (weekly)
+  day_of_month: number | null; // 1..31 (monthly)
+  timezone: string; // IANA
+  options: ScanOptions;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  last_run_at: string | null;
+  next_run_at: string | null;
+}
+
+/** The editable subset of a config (what create/update accept). */
+export type ScanConfigInput = Omit<
+  ScanConfig,
+  "id" | "created_at" | "updated_at" | "last_run_at" | "next_run_at"
+>;
