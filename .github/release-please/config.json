@@ -9,6 +9,11 @@
       "release-type": "go",
       "package-name": "surface",
       "changelog-path": "CHANGELOG.md",
+      "changelog-sections": [
+        { "type": "feat", "section": "Features", "hidden": false },
+        { "type": "fix", "section": "Bug Fixes", "hidden": false },
+        { "type": "chore", "section": "Chores", "hidden": false }
+      ],
       "initial-version": "0.1.0"
     }
   }
