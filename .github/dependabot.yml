@@ -1,20 +1,25 @@
 version: 2
 updates:
   - package-ecosystem: "gomod"
-    directory: "."
+    directory: "/"
     schedule:
       interval: "monthly"
-    versioning-strategy: increase
+    commit-message:
+      prefix: "fix"
+      include: "scope"
     groups:
-      npm:
+      go-modules:
         patterns:
           - "*"
 
   - package-ecosystem: "github-actions"
-    directory: ".github/workflows"
+    directory: "/"
     schedule:
       interval: "monthly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     groups:
-      gha:
+      github-actions:
         patterns:
           - "*"
