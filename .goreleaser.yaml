@@ -46,13 +46,10 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Release notes come from release-please; GoReleaser only uploads artifacts.
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^chore:"
-      - "^docs:"
-      - "^test:"
+  disable: true
 
 release:
+  mode: keep-existing
   prerelease: auto
