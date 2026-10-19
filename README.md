@@ -1,107 +1,108 @@
 # surface
 
-How exposed are you?
+How exposed are you? And do you want to find out?
 
-Surface is an attack surface management tool. Give it a domain and it:
+> Only scan domains you own or are authorized to test.
 
-1. **Enumerates subdomains** with [subfinder](https://github.com/projectdiscovery/subfinder) (passive sources)
-2. **Resolves DNS** with [dnsx](https://github.com/projectdiscovery/dnsx): A, AAAA, CNAME, MX, NS, TXT and CAA
-3. **Grabs TLS certificates** with [tlsx](https://github.com/projectdiscovery/tlsx) from every resolved host on :443
+## Install
 
-The ProjectDiscovery tools are used as Go libraries, not shelled-out binaries. Results are stored in Postgres and shown on a React dashboard.
-
-> Only scan domains you own or are authorized to test. TLS probing connects directly to the target hosts.
-
-## Quick start (development)
+Download `surface` and `surface-mcp` for your platform from
+[Releases](https://github.com/asyncawakestudio/surface/releases), or build
+from source (Go 1.26+):
 
 ```sh
-make dev   # docker compose -f devops/compose.yaml up --build
+go install github.com/asyncawakestudio/surface/cmd/surface@latest
+go install github.com/asyncawakestudio/surface/cmd/surface-mcp@latest
 ```
 
-| Service | URL                   | Notes                                     |
-|---------|-----------------------|-------------------------------------------|
-| UI      | http://localhost:5173 | Vite + React + Tailwind, HMR              |
-| API     | http://localhost:8080 | Go, rebuilt by [air](https://github.com/air-verse/air) on change |
-| DB      | localhost:5432        | `surface` / `surface`, `make psql`        |
+## CLI
 
-The first `make dev` takes a few minutes while Go compiles the ProjectDiscovery dependencies. The client container waits until the server is healthy. Later runs reuse the cached modules and builds. Edit Go code and air rebuilds the API. Edit anything in `client/src` and Vite hot-reloads the page. After changing `client/package.json`, run `docker compose -f devops/compose.yaml up --build -V` so the container's `node_modules` volume is recreated.
+```shell
+└─$ ./bin/surface --help
+surface — attack surface discovery
 
-## Production
+Usage:
+  surface [flags] <domain>
+  surface version
+
+By default these stages run: subdomains, dns, ipdr, certs. The port scan is
+opt-in (--ports) since it probes every IP the domain resolves to, including
+hosting and CDN infrastructure you may not own.
+
+Output:
+  --output <dest>       where/how to write results (default: txt to stdout).
+                        A file path picks the format by extension
+                        (report.json, hosts.csv, out.xml, scan.txt); a bare
+                        format name (json, csv, xml, txt) writes to stdout.
+  --skip <stages>       comma-separated stages to skip: ipdr, certs
+                        (subdomains and dns are always run)
+  --ports               also run the port scan (all 65535 TCP ports by default)
+  --quiet               suppress progress logging on stderr
+
+Tuning (all optional):
+  --ipinfo-token <tok>      ipinfo.io API token
+  --subfinder-config <f>    subfinder provider-config.yaml with API keys
+                            (defaults to subfinder's own ~/.config path)
+  --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
+  --max-time <dur>          subfinder enumeration cap, e.g. 90s or 10m
+  --port-type <t>           connect | syn (default connect; syn needs root
+                            and libpcap)
+  --port-spec <s>           -, 1-1000, 80,443 (default -)
+  --port-rate <n>           packets/sec for the port scan
+```
+
+The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
+and libpcap installed at runtime (`apt install libpcap0.8`, preinstalled on
+macOS). `connect` needs neither.
+
+## MCP
+
+`surface-mcp` speaks the Model Context Protocol over stdio (newline-delimited
+JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at the binary:
+
+```json
+{
+  "mcpServers": {
+    "surface": { "command": "/path/to/surface-mcp" }
+  }
+}
+```
+
+The `scan` tool takes `{ "domain": "example.com", "ports": true, ... }` (same
+options as the CLI flags) and returns the full result as JSON text. Scans run
+concurrently and stop on `notifications/cancelled`. Quick manual check:
 
 ```sh
-make prod  # one distroless container serving the API and the built UI on http://localhost:8080
-```
-
-Set `POSTGRES_PASSWORD` in the environment to override the default password.
-
-## Layout
-
-```
-server/                   Go API
-  cmd/server/             entrypoint: config, wiring, graceful shutdown
-  internal/asm/           scan pipeline: Scanner.Run(ctx, domain, progress)
-    subdomains.go         subfinder stage
-    dns.go                dnsx stage
-    tls.go                tlsx stage
-  internal/store/         Postgres persistence (pgx) + embedded SQL migrations
-  internal/api/           HTTP handlers and background job runner
-  .air.toml               hot reload config
-client/                   React + TypeScript + Tailwind dashboard (Vite)
-devops/
-  server.Dockerfile       dev target (air); prod target = distroless server + built client
-  client.Dockerfile       Vite dev server (development only)
-  *.Dockerfile.dockerignore
-  compose.yaml            development stack
-  compose.prod.yaml       production stack
-  config/subfinder/       subfinder provider (API key) config
-```
-
-Both Dockerfiles use the repository root as their build context. Each one has its own `<name>.Dockerfile.dockerignore`, which limits what gets sent into the build.
-
-### Using the scanner as a library
-
-```go
-scanner := asm.New(asm.Options{})
-res, err := scanner.Run(ctx, "example.com", func(s asm.Stage) { log.Println("stage:", s) })
-// res.Subdomains, res.DNSRecords, res.TLSCerts
+printf '%s\n%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | ./bin/surface-mcp
 ```
 
 ## API
 
-| Method | Path              | Description                                  |
-|--------|-------------------|----------------------------------------------|
-| POST   | `/api/scans`      | Start a scan: `{"domain": "example.com"}` → `202` |
-| GET    | `/api/scans`      | List scans with result counts (`?limit=`)    |
-| GET    | `/api/scans/{id}` | Scan with subdomains, DNS records and certs  |
-| DELETE | `/api/scans/{id}` | Delete a finished scan and its results       |
-| GET    | `/healthz`        | Liveness + DB check                          |
+```go
+import "github.com/asyncawakestudio/surface/asm"
 
-Scans run in the background. Poll `GET /api/scans/{id}` until `status` is `completed` or `failed`. While running, `stage` is `subdomains`, `dns` or `tls`.
+scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect"})
+res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
+// res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
+```
 
-## Database
+The engine's own defaults differ from the CLI: `PortScanType` defaults to
+`"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
+changed between scans).
 
-| Table              | Contents                                        |
-|--------------------|-------------------------------------------------|
-| `scans`            | one row per scan: domain, status, stage, timing |
-| `subdomains`       | host + the passive sources that reported it     |
-| `dns_records`      | host, record type, value                        |
-| `tls_certificates` | subject, SANs, issuer, validity, flags, SHA-256 |
+## Building
 
-Migrations in `server/internal/store/migrations` are embedded and applied at startup.
+| Target | Does |
+|--------|------|
+| `make build` | build `bin/surface` and `bin/surface-mcp` |
+| `make install` | `go install` both commands |
+| `make test` | `go vet` + unit tests (race) |
+| `make test-integration` | live tests (network): `go test -tags integration ./asm` |
+| `make run DOMAIN=example.com` | build + scan a domain |
 
-## Configuration
+## License
 
-| Env var                     | Default | Description                               |
-|-----------------------------|---------|-------------------------------------------|
-| `DATABASE_URL`              | —       | Postgres connection string (required)     |
-| `PORT`                      | `8080`  | API listen port                           |
-| `MAX_CONCURRENT_SCANS`      | `2`     | Scans that run at once; the rest queue    |
-| `SCAN_TIMEOUT_MINUTES`      | `30`    | Hard limit per scan                       |
-| `SUBFINDER_PROVIDER_CONFIG` | —       | Path to subfinder API keys (see below)    |
-| `STATIC_DIR`                | —       | Serve the built client from this directory (set in the prod image) |
-
-Without API keys, subfinder uses only free sources. To add keys, copy `devops/config/subfinder/provider-config.example.yaml` to `provider-config.yaml` in the same folder. Compose mounts `devops/config` into the API container.
-
-## Roadmap
-
-- Port scanning (naabu) and service enumeration. These slot into `asm.Scanner.Run` after the DNS stage and will feed discovered ports into the TLS stage.
+[MIT](LICENSE).
