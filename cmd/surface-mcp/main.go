@@ -21,8 +21,10 @@ import (
 const (
 	protocolVersion = "2024-11-05"
 	serverName      = "surface"
-	serverVersion   = "dev"
 )
+
+// serverVersion is set at release time via -ldflags "-X main.serverVersion=...".
+var serverVersion = "dev"
 
 func main() {
 	// Protocol traffic is on stdout; everything else must go to stderr.
