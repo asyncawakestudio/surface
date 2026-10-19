@@ -3,6 +3,7 @@ package asm
 import (
 	"context"
 	"io"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,11 +16,19 @@ import (
 // command `subfinder -d <domain> -all -silent`: every source (including the
 // slow ones) with silent output. The root domain itself is always included
 // so later stages cover it too.
+//
+// SubfinderMaxTime caps enumeration; whatever was found by then is returned.
+// subfinder only takes whole minutes, so the exact cap is applied through
+// the context and subfinder's own limit is rounded up to never cut it short.
 func (s *Scanner) enumerateSubdomains(ctx context.Context, domain string) ([]Subdomain, error) {
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, s.opts.SubfinderMaxTime)
+	defer cancel()
+
 	sf, err := runner.NewRunner(&runner.Options{
 		Threads:            10,
 		Timeout:            30,
-		MaxEnumerationTime: int(s.opts.SubfinderMaxTime.Minutes()),
+		MaxEnumerationTime: int(math.Ceil(s.opts.SubfinderMaxTime.Minutes())),
 		ProviderConfig:     s.opts.SubfinderProviderConfig,
 		All:                true, // -all: use all sources
 		Silent:             true, // -silent: subdomains only, no extra output
@@ -41,7 +50,8 @@ func (s *Scanner) enumerateSubdomains(ctx context.Context, domain string) ([]Sub
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	// Hitting the cap is expected; only the caller cancelling is an error.
+	if err := parent.Err(); err != nil {
 		return nil, err
 	}
 

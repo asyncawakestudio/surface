@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"surface/asm"
+	"github.com/asyncawakestudio/surface/asm"
 )
 
 func sample() *asm.Result {

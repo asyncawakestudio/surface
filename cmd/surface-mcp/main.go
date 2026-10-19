@@ -2,8 +2,9 @@
 // the Model Context Protocol (MCP) on stdio. It speaks newline-delimited
 // JSON-RPC 2.0 — the MCP stdio transport — with no external dependencies.
 //
-// Tool: scan(domain, ...) runs the full discovery pipeline and returns the
-// result as JSON text. Configure an MCP client to launch this binary over
+// Tool: scan(domain, ...) runs the discovery pipeline and returns the result
+// as JSON text. Scans run concurrently and can be cancelled with
+// notifications/cancelled. Configure an MCP client to launch this binary over
 // stdio.
 package main
 
@@ -14,8 +15,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 
-	"surface/internal/scan"
+	"github.com/asyncawakestudio/surface/internal/scan"
 )
 
 const (
@@ -67,8 +69,12 @@ const (
 )
 
 type server struct {
-	out         *bufio.Writer
-	initialized bool
+	outMu sync.Mutex // guards out: tool calls reply from their own goroutines
+	out   *bufio.Writer
+
+	mu       sync.Mutex
+	inflight map[string]context.CancelFunc // by request ID, for cancellation
+	wg       sync.WaitGroup
 }
 
 func (s *server) serve(r io.Reader) error {
@@ -86,6 +92,13 @@ func (s *server) serve(r io.Reader) error {
 		}
 		s.handle(&req)
 	}
+	// The client is gone: stop any running scans before exiting.
+	s.mu.Lock()
+	for _, cancel := range s.inflight {
+		cancel()
+	}
+	s.mu.Unlock()
+	s.wg.Wait()
 	return sc.Err()
 }
 
@@ -101,13 +114,35 @@ func (s *server) handle(req *request) {
 			"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
 		})
 	case "notifications/initialized":
-		s.initialized = true // notification: no reply
+		// notification: no reply
+	case "notifications/cancelled":
+		s.cancel(req.Params)
 	case "ping":
 		s.reply(req, map[string]any{})
 	case "tools/list":
 		s.reply(req, map[string]any{"tools": tools})
 	case "tools/call":
-		s.handleToolCall(req)
+		// Scans take minutes; run them off the read loop so pings and
+		// cancellations are still handled.
+		ctx, cancel := context.WithCancel(context.Background())
+		key := string(req.ID)
+		s.mu.Lock()
+		if s.inflight == nil {
+			s.inflight = map[string]context.CancelFunc{}
+		}
+		s.inflight[key] = cancel
+		s.mu.Unlock()
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			defer func() {
+				s.mu.Lock()
+				delete(s.inflight, key)
+				s.mu.Unlock()
+				cancel()
+			}()
+			s.handleToolCall(ctx, req)
+		}()
 	default:
 		if isNotification {
 			return // ignore unknown notifications
@@ -116,17 +151,33 @@ func (s *server) handle(req *request) {
 	}
 }
 
+// cancel stops the in-flight request named by a notifications/cancelled.
+func (s *server) cancel(params json.RawMessage) {
+	var p struct {
+		RequestID json.RawMessage `json:"requestId"`
+	}
+	if json.Unmarshal(params, &p) != nil || len(p.RequestID) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cancel, ok := s.inflight[string(p.RequestID)]; ok {
+		cancel()
+	}
+}
+
 // --- tools ---
 
 var tools = []map[string]any{{
 	"name":        "scan",
-	"description": "Run attack-surface discovery against a domain. By default every stage runs: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io), a TCP port scan of all ports (naabu), and TLS certificate inspection (tlsx). Use `skip` to turn stages off. Returns the full result as JSON.",
+	"description": "Run attack-surface discovery against a domain: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. Use `skip` to turn stages off. Returns the full result as JSON.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"domain":           map[string]any{"type": "string", "description": "Registrable domain to scan, e.g. example.com"},
-			"skip":             map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"ipdr", "ports", "certs"}}, "description": "Stages to skip (subdomains and dns always run)"},
-			"port_type":        map[string]any{"type": "string", "enum": []string{"syn", "connect"}, "description": "Port scan mode (default connect)"},
+			"skip":             map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"ipdr", "certs"}}, "description": "Stages to skip (subdomains and dns always run)"},
+			"ports":            map[string]any{"type": "boolean", "description": "Also run the TCP port scan (default false)"},
+			"port_type":        map[string]any{"type": "string", "enum": []string{"connect", "syn"}, "description": "Port scan mode (default connect; syn needs root and libpcap)"},
 			"port_spec":        map[string]any{"type": "string", "description": `Ports to scan: "-" for all (default), "1-1000", or "80,443"`},
 			"port_rate":        map[string]any{"type": "integer", "description": "Packets/sec for the port scan"},
 			"resolvers":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "DNS resolvers, e.g. udp:1.1.1.1:53"},
@@ -140,6 +191,7 @@ var tools = []map[string]any{{
 type scanArgs struct {
 	Domain          string   `json:"domain"`
 	Skip            []string `json:"skip"`
+	Ports           bool     `json:"ports"`
 	PortType        string   `json:"port_type"`
 	PortSpec        string   `json:"port_spec"`
 	PortRate        int      `json:"port_rate"`
@@ -148,7 +200,7 @@ type scanArgs struct {
 	SubfinderConfig string   `json:"subfinder_config"`
 }
 
-func (s *server) handleToolCall(req *request) {
+func (s *server) handleToolCall(ctx context.Context, req *request) {
 	var call struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -173,9 +225,14 @@ func (s *server) handleToolCall(req *request) {
 		s.reply(req, toolError("domain is required"))
 		return
 	}
+	if !a.Ports && (a.PortType != "" || a.PortSpec != "" || a.PortRate != 0) {
+		s.reply(req, toolError("port_type, port_spec and port_rate require ports: true"))
+		return
+	}
 
 	p := scan.Params{
 		Domain:       a.Domain,
+		Ports:        a.Ports,
 		PortType:     a.PortType,
 		PortSpec:     a.PortSpec,
 		PortRate:     a.PortRate,
@@ -188,7 +245,10 @@ func (s *server) handleToolCall(req *request) {
 		return
 	}
 
-	res, err := scan.Run(context.Background(), p, nil, nil)
+	res, err := scan.Run(ctx, p, nil, nil)
+	if ctx.Err() != nil {
+		return // cancelled: the spec says not to respond
+	}
 	if err != nil {
 		s.reply(req, toolError("scan failed: "+err.Error()))
 		return
@@ -237,6 +297,8 @@ func (s *server) send(resp response) {
 		log.Println("marshal response:", err)
 		return
 	}
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
 	s.out.Write(b)
 	s.out.WriteByte('\n')
 	if err := s.out.Flush(); err != nil {

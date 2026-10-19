@@ -4,8 +4,8 @@
 //
 //	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> ports (naabu) -> certs (tlsx)
 //
-// Port scanning and service enumeration will slot in after the DNS stage,
-// since they need resolved hosts as input.
+// ipdr, ports and certs work from the hosts the DNS stage resolved. ports is
+// opt-in (Options.PortScan).
 package asm
 
 import (
@@ -129,8 +129,9 @@ type Options struct {
 	// SkipCerts disables the certificate stage (TLS inspection via tlsx).
 	SkipCerts bool
 	// PortScanType selects the naabu scan mode: "syn" (half-open, needs raw
-	// sockets and a routable interface) or "connect" (full TCP connect, works
-	// through NAT such as a Docker bridge / WSL2). Defaults to "syn".
+	// sockets, libpcap and a routable interface) or "connect" (full TCP
+	// connect, works through NAT such as a Docker bridge / WSL2). Defaults to
+	// "syn".
 	PortScanType string
 	// PortScanPorts is the naabu port spec; "-" means all 65535 TCP ports.
 	PortScanPorts string

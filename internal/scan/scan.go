@@ -11,19 +11,20 @@ import (
 	"strings"
 	"time"
 
-	"surface/asm"
+	"github.com/asyncawakestudio/surface/asm"
 )
 
-// Params are the knobs both front-ends expose. By default every stage runs
-// (subdomains, dns, ipdr, ports, certs) and the port scan covers all ports.
-// Set the Skip* fields to turn stages off. Zero values elsewhere mean "engine
-// default", except Domain which is required.
+// Params are the knobs both front-ends expose. By default subdomains, dns,
+// ipdr and certs run; the port scan is opt-in (Ports) because it probes every
+// resolved IP, including third-party infrastructure. Set the Skip* fields to
+// turn stages off. Zero values elsewhere mean "default", except Domain which
+// is required.
 type Params struct {
 	Domain       string
 	SkipIPDR     bool
-	SkipPorts    bool
 	SkipCerts    bool
-	PortType     string // "syn" or "connect"
+	Ports        bool   // run the port scan
+	PortType     string // "connect" (default) or "syn"
 	PortSpec     string // naabu port spec, e.g. "-", "1-1000", "80,443"
 	PortRate     int
 	Resolvers    []string
@@ -38,6 +39,12 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 	if logs == nil {
 		logs = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	// The engine defaults to a SYN scan, which needs root and libpcap; the
+	// front-ends default to a connect scan, which works anywhere.
+	portType := p.PortType
+	if portType == "" {
+		portType = "connect"
+	}
 	return asm.Options{
 		SubfinderProviderConfig: p.SubfinderCfg,
 		SubfinderMaxTime:        p.MaxTime,
@@ -45,8 +52,8 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		IPInfoToken:             p.IPInfoToken,
 		SkipIPDR:                p.SkipIPDR,
 		SkipCerts:               p.SkipCerts,
-		PortScan:                !p.SkipPorts, // ports run by default
-		PortScanType:            p.PortType,
+		PortScan:                p.Ports,
+		PortScanType:            portType,
 		PortScanPorts:           p.PortSpec,
 		PortScanRate:            p.PortRate,
 		Logger:                  logs,
@@ -54,8 +61,9 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 }
 
 // StageNames are the stages a caller may skip. subdomains and dns are
-// foundational (everything depends on them) and cannot be skipped.
-var StageNames = []string{"ipdr", "ports", "certs"}
+// foundational (everything depends on them) and cannot be skipped; ports is
+// off unless requested.
+var StageNames = []string{"ipdr", "certs"}
 
 // ApplySkips sets the Skip* fields from stage names, returning an error for an
 // unknown or non-skippable name.
@@ -64,10 +72,10 @@ func (p *Params) ApplySkips(names []string) error {
 		switch n {
 		case "ipdr":
 			p.SkipIPDR = true
-		case "ports":
-			p.SkipPorts = true
 		case "certs":
 			p.SkipCerts = true
+		case "ports":
+			return fmt.Errorf("the port scan is off by default; there is no need to skip it")
 		default:
 			return fmt.Errorf("cannot skip %q (skippable stages: %s)", n, strings.Join(StageNames, ", "))
 		}

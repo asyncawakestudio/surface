@@ -29,8 +29,8 @@ type PortScan struct {
 	Ports []OpenPort `json:"ports"`
 }
 
-// scanPorts runs a naabu SYN scan across all TCP ports of every IPv4 address
-// the hosts resolved to. IPv6 addresses are skipped per configuration.
+// scanPorts runs a naabu scan (PortScanType, over PortScanPorts) of every
+// IPv4 address the hosts resolved to. IPv6 addresses are skipped.
 //
 // A SYN (half-open) scan needs raw-socket privileges (root or CAP_NET_RAW).
 // Without them naabu falls back to a TCP connect scan on its own; we log the

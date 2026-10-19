@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"surface/asm"
+	"github.com/asyncawakestudio/surface/asm"
 )
 
-// Formats lists the valid --out-format values.
+// Formats lists the valid output formats (the CLI's --output values).
 var Formats = []string{"txt", "json", "csv", "xml"}
 
 // Valid reports whether format is a supported output format.

@@ -1,8 +1,8 @@
 // Command surface is the human-facing CLI for the core discovery service.
 //
-//	surface example.com                 # full scan, human-readable report
-//	surface --json example.com          # machine-readable JSON
-//	surface --skip=certs,ports example.com
+//	surface example.com                 # scan, human-readable report
+//	surface --output=json example.com   # machine-readable JSON
+//	surface --ports --skip=certs example.com
 //
 // It runs the same engine the MCP server and the cloud product use.
 package main
@@ -20,9 +20,9 @@ import (
 	"syscall"
 	"time"
 
-	"surface/asm"
-	"surface/internal/output"
-	"surface/internal/scan"
+	"github.com/asyncawakestudio/surface/asm"
+	"github.com/asyncawakestudio/surface/internal/output"
+	"github.com/asyncawakestudio/surface/internal/scan"
 )
 
 func main() {
@@ -50,15 +50,18 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default every stage runs — subdomains, dns, ipdr, ports (all 65535), certs.
+By default these stages run: subdomains, dns, ipdr, certs. The port scan is
+opt-in (--ports) since it probes every IP the domain resolves to, including
+hosting and CDN infrastructure you may not own.
 
 Output:
   --output <dest>       where/how to write results (default: txt to stdout).
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, ports, certs
+  --skip <stages>       comma-separated stages to skip: ipdr, certs
                         (subdomains and dns are always run)
+  --ports               also run the port scan (all 65535 TCP ports by default)
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
@@ -66,8 +69,9 @@ Tuning (all optional):
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
   --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
-  --max-time <dur>          subfinder enumeration cap, e.g. 10m
-  --port-type <t>           syn | connect (default connect)
+  --max-time <dur>          subfinder enumeration cap, e.g. 90s or 10m
+  --port-type <t>           connect | syn (default connect; syn needs root
+                            and libpcap)
   --port-spec <s>           -, 1-1000, 80,443 (default -)
   --port-rate <n>           packets/sec for the port scan
 `)
@@ -79,13 +83,14 @@ func runScan(args []string) int {
 	fs.Usage = usage
 	var (
 		outDest   = fs.String("output", "", "output destination: a file path (format by extension) or a format name; empty = txt to stdout")
-		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, ports, certs")
+		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, certs")
+		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
 		resolvers = fs.String("resolvers", "", "comma-separated DNS resolvers")
 		maxTime   = fs.String("max-time", "", "subfinder enumeration cap, e.g. 10m")
-		portType  = fs.String("port-type", "", "port scan mode: syn or connect")
+		portType  = fs.String("port-type", "", "port scan mode: connect or syn")
 		portSpec  = fs.String("port-spec", "", "ports to scan: -, 1-1000, 80,443")
 		portRate  = fs.Int("port-rate", 0, "packets/sec for the port scan")
 	)
@@ -104,8 +109,14 @@ func runScan(args []string) int {
 		return 2
 	}
 
+	if !*ports && (*portType != "" || *portSpec != "" || *portRate != 0) {
+		fmt.Fprintln(os.Stderr, "error: --port-type, --port-spec and --port-rate require --ports")
+		return 2
+	}
+
 	p := scan.Params{
 		Domain:       rest[0],
+		Ports:        *ports,
 		PortType:     *portType,
 		PortSpec:     *portSpec,
 		PortRate:     *portRate,
@@ -150,21 +161,27 @@ func runScan(args []string) int {
 		return 1
 	}
 
-	w := os.Stdout
-	if outFile != "" {
-		f, err := os.Create(outFile)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "error: cannot create output file:", err)
+	if outFile == "" {
+		if err := output.Render(os.Stdout, res, outFormat); err != nil {
+			fmt.Fprintln(os.Stderr, "error: writing output:", err)
 			return 1
 		}
-		defer f.Close()
-		w = f
+		return 0
 	}
-	if err := output.Render(w, res, outFormat); err != nil {
+	f, err := os.Create(outFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: cannot create output file:", err)
+		return 1
+	}
+	err = output.Render(f, res, outFormat)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "error: writing output:", err)
 		return 1
 	}
-	if outFile != "" && !*quiet {
+	if !*quiet {
 		fmt.Fprintf(os.Stderr, "wrote %s output to %s\n", outFormat, outFile)
 	}
 	return 0

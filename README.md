@@ -2,31 +2,58 @@
 
 How exposed are you? And do you want to find out?
 
+> Only scan domains you own or are authorized to test.
+
+## Install
+
+Download `surface` and `surface-mcp` for your platform from
+[Releases](https://github.com/asyncawakestudio/surface/releases), or build
+from source (Go 1.26+):
+
+```sh
+go install github.com/asyncawakestudio/surface/cmd/surface@latest
+go install github.com/asyncawakestudio/surface/cmd/surface-mcp@latest
+```
+
 ## CLI
 
 ```shell
-└─$ surface --help
+└─$ ./bin/surface --help
 surface — attack surface discovery
 
 Usage:
-  surface scan [--json] [--ports] [--quiet] <domain>
+  surface [flags] <domain>
   surface version
 
-Flags:
-  --json    output JSON instead of a text report
-  --ports   also run the port-scan stage (slower)
-  --quiet   suppress progress logging on stderr
+By default these stages run: subdomains, dns, ipdr, certs. The port scan is
+opt-in (--ports) since it probes every IP the domain resolves to, including
+hosting and CDN infrastructure you may not own.
 
-Advanced tuning is read from the environment (all optional):
-  IPINFO_TOKEN              ipinfo.io API token
-  SUBFINDER_PROVIDER_CONFIG subfinder provider-config.yaml with API keys
+Output:
+  --output <dest>       where/how to write results (default: txt to stdout).
+                        A file path picks the format by extension
+                        (report.json, hosts.csv, out.xml, scan.txt); a bare
+                        format name (json, csv, xml, txt) writes to stdout.
+  --skip <stages>       comma-separated stages to skip: ipdr, certs
+                        (subdomains and dns are always run)
+  --ports               also run the port scan (all 65535 TCP ports by default)
+  --quiet               suppress progress logging on stderr
+
+Tuning (all optional):
+  --ipinfo-token <tok>      ipinfo.io API token
+  --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
-  DNS_RESOLVERS             comma-separated, e.g. udp:1.1.1.1:53
-  SUBFINDER_MAX_TIME        subfinder cap, e.g. 10m
-  PORT_SCAN_TYPE            syn | connect (default connect)
-  PORT_SCAN_PORTS           -, 1-1000, 80,443 (default -)
-  PORT_SCAN_RATE            packets/sec
+  --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
+  --max-time <dur>          subfinder enumeration cap, e.g. 90s or 10m
+  --port-type <t>           connect | syn (default connect; syn needs root
+                            and libpcap)
+  --port-spec <s>           -, 1-1000, 80,443 (default -)
+  --port-rate <n>           packets/sec for the port scan
 ```
+
+The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
+and libpcap installed at runtime (`apt install libpcap0.8`, preinstalled on
+macOS). `connect` needs neither.
 
 ## MCP
 
@@ -42,8 +69,8 @@ JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at the binary:
 ```
 
 The `scan` tool takes `{ "domain": "example.com", "ports": true, ... }` (same
-options as the CLI flags) and returns the full result as JSON text. Quick
-manual check:
+options as the CLI flags) and returns the full result as JSON text. Scans run
+concurrently and stop on `notifications/cancelled`. Quick manual check:
 
 ```sh
 printf '%s\n%s\n%s\n' \
@@ -55,14 +82,15 @@ printf '%s\n%s\n%s\n' \
 ## API
 
 ```go
-import "surface/asm"
+import "github.com/asyncawakestudio/surface/asm"
 
 scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect"})
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
 ```
 
-`asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
+The engine's own defaults differ from the CLI: `PortScanType` defaults to
+`"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
 changed between scans).
 
 ## Building
@@ -77,4 +105,4 @@ changed between scans).
 
 ## License
 
-MIT.
+[MIT](LICENSE).
