@@ -1,5 +1,0 @@
-server/bin/
-server/tmp/
-devops/.env
-devops/config/subfinder/provider-config.yaml
-*.log

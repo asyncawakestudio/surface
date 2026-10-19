@@ -1,6 +1,0 @@
-*
-!surface/
-!surface-cloud/server/
-surface/**/tmp/
-surface-cloud/server/tmp/
-surface-cloud/server/bin/
