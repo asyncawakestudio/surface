@@ -170,7 +170,7 @@ func (s *server) cancel(params json.RawMessage) {
 
 var tools = []map[string]any{{
 	"name":        "scan",
-	"description": "Run attack-surface discovery against a domain: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. Use `skip` to turn stages off. Returns the full result as JSON.",
+	"description": "Run attack-surface discovery against a domain: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. Port scanning is not available in Windows ARM64 builds. Use `skip` to turn stages off. Returns the full result as JSON.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{

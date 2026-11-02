@@ -62,6 +62,7 @@ Output:
   --skip <stages>       comma-separated stages to skip: ipdr, certs
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
+                        (not available in Windows ARM64 builds)
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
