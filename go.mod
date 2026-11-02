@@ -8,7 +8,7 @@ require (
 	github.com/projectdiscovery/goflags v0.2.1
 	github.com/projectdiscovery/naabu/v2 v2.7.0
 	github.com/projectdiscovery/subfinder/v2 v2.17.0
-	github.com/projectdiscovery/tlsx v1.4.3
+	github.com/projectdiscovery/tlsx v1.4.4
 	github.com/projectdiscovery/utils v0.11.10
 )
 
@@ -53,6 +53,7 @@ require (
 	github.com/hdm/jarm-go v0.0.8 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.7 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/logrusorgru/aurora/v4 v4.0.0 // indirect
@@ -110,6 +111,7 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.3 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zcalusic/sysinfo v1.0.2 // indirect
+	github.com/zmap/rc2 v0.0.0-20190804163417-abaa70531248 // indirect
 	github.com/zmap/zcrypto v0.0.0-20261015050653-aa1de3126e87 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
@@ -124,3 +126,5 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/zmap/zcrypto => github.com/zmap/zcrypto v0.0.0-20240803002437-3a861682ac77
