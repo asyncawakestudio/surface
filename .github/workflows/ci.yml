@@ -1,4 +1,4 @@
-name: CI
+name: Go Lang
 
 on:
   push:
@@ -45,17 +45,18 @@ jobs:
         run: go test -race -count=1 ./...
 
   build:
-    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
-          - { goos: darwin, goarch: amd64 }
-          - { goos: darwin, goarch: arm64 }
-          - { goos: windows, goarch: amd64 }
+          - { name: Linux x64, goos: linux, goarch: amd64 }
+          - { name: Linux ARM64, goos: linux, goarch: arm64 }
+          - { name: MacOS Intel, goos: darwin, goarch: amd64 }
+          - { name: MacOS ARM, goos: darwin, goarch: arm64 }
+          - { name: Windows x64, goos: windows, goarch: amd64 }
+          - { name: Windows ARM64, goos: windows, goarch: arm64 }
     steps:
       - uses: actions/checkout@v7
 
