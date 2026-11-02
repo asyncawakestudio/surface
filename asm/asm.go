@@ -213,6 +213,9 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	if err != nil {
 		return nil, err
 	}
+	if s.opts.PortScan && !PortScanSupported {
+		return nil, ErrPortScanUnsupported
+	}
 	if progress == nil {
 		progress = func(Stage) {}
 	}
