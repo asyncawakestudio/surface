@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/asyncawakestudio/surface/compare/v0.1.0...v0.1.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** bump the go-modules group with 3 updates ([#4](https://github.com/asyncawakestudio/surface/issues/4)) ([38cc731](https://github.com/asyncawakestudio/surface/commit/38cc7316ca875d1acf4fe27f6ed8794835e7af96))
+
 ## 0.1.0 (2026-10-19)
 
 
