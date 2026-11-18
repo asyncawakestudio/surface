@@ -2,7 +2,8 @@
 
 How exposed are you?
 
-> Only scan domains you own or are authorized to test.
+> Only scan domains you own or are authorized to test. See
+> [Disclaimer](#disclaimer).
 
 ## Install
 
@@ -149,6 +150,18 @@ changed between scans).
 | `make test` | `go vet` + unit tests (race) |
 | `make test-integration` | live tests (network): `go test -tags integration ./asm` |
 | `make run DOMAIN=example.com` | build + scan a domain |
+
+## Disclaimer
+
+surface is for authorized security testing, such as assessing systems you own
+or have written permission to test. Scanning systems without permission may be
+illegal where you or the target are.
+
+You are solely responsible for how you use it. It is provided "as is", without
+warranty of any kind, and its authors and contributors are not liable for any
+misuse, damage or legal consequences arising from its use (see the
+[license](LICENSE)). Results, including vulnerability matches, may be
+incomplete or wrong; verify them before acting on them.
 
 ## License
 
