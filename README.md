@@ -1,6 +1,6 @@
 # surface
 
-How exposed are you? And do you want to find out?
+How exposed are you?
 
 > Only scan domains you own or are authorized to test.
 
