@@ -67,25 +67,37 @@ The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
 and libpcap installed at runtime (`apt install libpcap0.8`, preinstalled on
 macOS). `connect` needs neither.
 
-`--services` sends protocol probes to every open port, not just a connection
-attempt, so it is opt-in on top of `--ports`. It reads nmap's
-`nmap-service-probes` file from a local nmap installation
-(`apt install nmap`, `brew install nmap`) or from `--service-probes`; surface
-doesn't ship it, since it is covered by nmap's own license. The scan stops at
-the start if the file can't be found. Each identified port gets a `service`
-with its CPEs in CPE 2.3 form, the identifiers vulnerability databases use.
+### Services (`--services`)
 
-`--vulns` looks up the CVEs affecting each detected service's version. NVD
-matches the service's versioned CPE against each CVE's affected version
-ranges; [vulnx](https://github.com/projectdiscovery/vulnx) then adds whether
-it is known exploited (CISA KEV), its EPSS score, public PoCs and Nuclei
-template coverage. Known-exploited CVEs are listed first. Both APIs work
-without keys, but NVD allows only 5 requests per 30 seconds without one
-([request a key](https://nvd.nist.gov/developers/request-an-api-key)), so a
-scan with many distinct service versions is slow. Matching is by version
-only: Linux distributions often backport fixes without changing the upstream
-version (e.g. `OpenSSH 8.9p1 Ubuntu 3ubuntu0.10`), so check listed CVEs
-against your distribution's advisories.
+Identifies what runs on each open port: name, product, version, TLS, banner
+and CPEs (CPE 2.3, the identifiers vulnerability databases use).
+
+- **Requires** `--ports` and nmap's `nmap-service-probes` file, from a local
+  nmap install (`apt install nmap`, `brew install nmap`) or `--service-probes`.
+  Not bundled: it is under nmap's license. The scan stops at the start if it
+  is missing.
+- **Intrusive:** sends protocol probes to every open port, not just a
+  connection attempt.
+
+### Vulnerabilities (`--vulns`)
+
+Lists the CVEs affecting each detected service's version, known-exploited
+first.
+
+| Step | Source | Gives |
+|------|--------|-------|
+| Match | [NVD](https://nvd.nist.gov/developers/vulnerabilities) | CVEs whose affected version ranges include the service's versioned CPE; CVSS severity |
+| Enrich | [vulnx](https://github.com/projectdiscovery/vulnx) | CISA KEV, EPSS, public PoCs, Nuclei template coverage |
+
+- **Requires** `--services`. Services without a versioned CPE are skipped.
+- **Keys (optional):** NVD allows 5 requests per 30s without a key, 50 with
+  one ([request a key](https://nvd.nist.gov/developers/request-an-api-key));
+  use `--nvd-api-key` or `NVD_API_KEY`. vulnx takes a ProjectDiscovery Cloud
+  key via `--pdcp-api-key` or `PDCP_API_KEY`.
+- **Version-based:** distributions backport fixes without changing the
+  upstream version (e.g. `OpenSSH 8.9p1 Ubuntu 3ubuntu0.10`), so check listed
+  CVEs against your distribution's advisories.
+- If vulnx fails for a CVE, it is still listed, without exploitation data.
 
 ## MCP
 
