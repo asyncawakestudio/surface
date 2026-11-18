@@ -140,3 +140,48 @@ func TestRenderServices(t *testing.T) {
 		t.Error("csv has a service row for a port without a service")
 	}
 }
+
+func TestRenderVulnerabilities(t *testing.T) {
+	r := withService()
+	r.Vulnerabilities = []asm.ServiceVulnerabilities{{
+		ServiceTarget: asm.ServiceTarget{IP: "1.2.3.4", Port: 22, Protocol: "tcp", Service: *r.PortScans[0].Ports[0].Service},
+		CPE:           "cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*",
+		Vulnerabilities: []asm.Vulnerability{
+			{ID: "CVE-2023-38408", Severity: "critical", CVSSScore: 9.8, Enriched: true, Name: "OpenSSH - Command Injection", KEV: true, PoCs: 19, EPSSScore: 0.797},
+			{ID: "CVE-2023-51385", Severity: "medium", CVSSScore: 6.5, Description: "In ssh in OpenSSH before 9.6, OS command injection might occur if a user name or host name has shell metacharacters"},
+		},
+	}}
+	cases := map[string][]string{
+		"txt": {
+			"Vulnerabilities\n  1.2.3.4:22  ssh OpenSSH 8.9p1 (2 CVEs)",
+			"CVE-2023-38408   critical  9.8  OpenSSH - Command Injection  [KEV, 19 PoCs, EPSS 0.80]",
+			"CVE-2023-51385   medium    6.5  In ssh in OpenSSH before 9.6, OS command injection might occur if a us...",
+		},
+		"csv": {
+			"vuln,,1.2.3.4,22,CVE-2023-38408,severity=critical; cvss=9.8; kev; epss=0.7970; pocs=19; cpe=cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*",
+			"vuln,,1.2.3.4,22,CVE-2023-51385,severity=medium; cvss=6.5; cpe=cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*",
+		},
+		"xml":  {`<record type="vuln" ip="1.2.3.4" port="22" field="CVE-2023-38408">severity=critical;`},
+		"json": {`"vulnerabilities": [`, `"id": "CVE-2023-38408"`, `"kev": true`},
+	}
+	for format, wants := range cases {
+		var b strings.Builder
+		if err := Render(&b, r, format); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		for _, want := range wants {
+			if !strings.Contains(b.String(), want) {
+				t.Errorf("%s output missing %q:\n%s", format, want, b.String())
+			}
+		}
+	}
+
+	// Without a vulnerability lookup the section is absent.
+	var b strings.Builder
+	if err := Render(&b, withService(), "txt"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "Vulnerabilities") {
+		t.Error("txt has a Vulnerabilities section without a lookup")
+	}
+}

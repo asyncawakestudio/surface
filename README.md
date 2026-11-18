@@ -1,8 +1,9 @@
 # surface
 
-How exposed are you? And do you want to find out?
+How exposed are you?
 
-> Only scan domains you own or are authorized to test.
+> Only scan domains you own or are authorized to test. See
+> [Disclaimer](#disclaimer).
 
 ## Install
 
@@ -40,6 +41,9 @@ Output:
   --services            with --ports, identify the service on each open port
                         (product, version, CPEs) using nmap's service probes;
                         needs nmap installed or --service-probes
+  --vulns               with --services, look up the CVEs affecting each
+                        detected service's version (NVD), with exploitation
+                        data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs)
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
@@ -54,19 +58,47 @@ Tuning (all optional):
   --port-rate <n>           packets/sec for the port scan
   --service-probes <f>      nmap-service-probes file for --services
                             (defaults to a local nmap installation's copy)
+  --nvd-api-key <key>       NVD API key for --vulns: 10x higher rate limit
+                            (default: $NVD_API_KEY)
+  --pdcp-api-key <key>      ProjectDiscovery Cloud API key for --vulns
+                            (default: $PDCP_API_KEY)
 ```
 
 The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
 and libpcap installed at runtime (`apt install libpcap0.8`, preinstalled on
 macOS). `connect` needs neither.
 
-`--services` sends protocol probes to every open port, not just a connection
-attempt, so it is opt-in on top of `--ports`. It reads nmap's
-`nmap-service-probes` file from a local nmap installation
-(`apt install nmap`, `brew install nmap`) or from `--service-probes`; surface
-doesn't ship it, since it is covered by nmap's own license. The scan stops at
-the start if the file can't be found. Each identified port gets a `service`
-with its CPEs in CPE 2.3 form, the identifiers vulnerability databases use.
+### Services (`--services`)
+
+Identifies what runs on each open port: name, product, version, TLS, banner
+and CPEs (CPE 2.3, the identifiers vulnerability databases use).
+
+- **Requires** `--ports` and nmap's `nmap-service-probes` file, from a local
+  nmap install (`apt install nmap`, `brew install nmap`) or `--service-probes`.
+  Not bundled: it is under nmap's license. The scan stops at the start if it
+  is missing.
+- **Intrusive:** sends protocol probes to every open port, not just a
+  connection attempt.
+
+### Vulnerabilities (`--vulns`)
+
+Lists the CVEs affecting each detected service's version, known-exploited
+first.
+
+| Step | Source | Gives |
+|------|--------|-------|
+| Match | [NVD](https://nvd.nist.gov/developers/vulnerabilities) | CVEs whose affected version ranges include the service's versioned CPE; CVSS severity |
+| Enrich | [vulnx](https://github.com/projectdiscovery/vulnx) | CISA KEV, EPSS, public PoCs, Nuclei template coverage |
+
+- **Requires** `--services`. Services without a versioned CPE are skipped.
+- **Keys (optional):** NVD allows 5 requests per 30s without a key, 50 with
+  one ([request a key](https://nvd.nist.gov/developers/request-an-api-key));
+  use `--nvd-api-key` or `NVD_API_KEY`. vulnx takes a ProjectDiscovery Cloud
+  key via `--pdcp-api-key` or `PDCP_API_KEY`.
+- **Version-based:** distributions backport fixes without changing the
+  upstream version (e.g. `OpenSSH 8.9p1 Ubuntu 3ubuntu0.10`), so check listed
+  CVEs against your distribution's advisories.
+- If vulnx fails for a CVE, it is still listed, without exploitation data.
 
 ## MCP
 
@@ -81,8 +113,9 @@ JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at the binary:
 }
 ```
 
-The `scan` tool takes `{ "domain": "example.com", "ports": true, "services": true, ... }` (same
-options as the CLI flags) and returns the full result as JSON text. Scans run
+The `scan` tool takes `{ "domain": "example.com", "ports": true, "services": true, "vulns": true, ... }` (same
+options as the CLI flags; API keys come from the server's `NVD_API_KEY` and
+`PDCP_API_KEY` environment variables) and returns the full result as JSON text. Scans run
 concurrently and stop on `notifications/cancelled`. Quick manual check:
 
 ```sh
@@ -101,11 +134,14 @@ scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceD
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
 // res.Services(): every identified service with its IP, hosts and port
+// res.Vulnerabilities: with VulnLookup, the CVEs affecting each service
 ```
 
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
 `"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
-changed between scans).
+changed between scans): subdomains, DNS records, IP data, certificates, open ports,
+service versions and CVEs. Ports and CVEs are only compared when both scans looked for
+them (`Result.Stages`).
 
 ## Building
 
@@ -116,6 +152,17 @@ changed between scans).
 | `make test` | `go vet` + unit tests (race) |
 | `make test-integration` | live tests (network): `go test -tags integration ./asm` |
 | `make run DOMAIN=example.com` | build + scan a domain |
+
+## Disclaimer
+
+**For authorized use only**. This tool is provided for educational and
+legitimate security testing purposes. You are solely responsible for obtaining
+proper authorization before use. Unauthorized use may be illegal.
+
+Provided "as is," with no warranties. The authors are not liable for any misuse
+or damages.
+
+_Use at your own risk._
 
 ## License
 

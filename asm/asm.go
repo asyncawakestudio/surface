@@ -2,11 +2,13 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> ports (naabu) -> certs (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> ports (naabu) -> vulns (NVD, vulnx) -> certs (tlsx)
 //
 // ipdr, ports and certs work from the hosts the DNS stage resolved. ports is
 // opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
-// also identifies the service on each open port (see Service).
+// also identifies the service on each open port (see Service), and with
+// Options.VulnLookup the vulns stage finds the CVEs affecting those services'
+// versions (see Vulnerability).
 package asm
 
 import (
@@ -31,7 +33,11 @@ const (
 	StageDNS        Stage = "dns"
 	StageIPDR       Stage = "ipdr"
 	StagePorts      Stage = "ports"
-	StageCerts      Stage = "certs"
+	// StageServices is service detection, part of the ports stage. It is
+	// recorded in Result.Stages but not reported to a ProgressFunc.
+	StageServices Stage = "services"
+	StageVulns    Stage = "vulns"
+	StageCerts    Stage = "certs"
 )
 
 // ProgressFunc is called when the scan enters a new stage.
@@ -86,12 +92,18 @@ type TLSCert struct {
 
 // Result is everything discovered for a domain.
 type Result struct {
-	Domain     string      `json:"domain"`
+	Domain string `json:"domain"`
+	// Stages lists the stages that ran, so an empty result (no open ports, no
+	// CVEs) can be told apart from one that was never looked for. Results
+	// saved before this field existed don't have it.
+	Stages     []Stage     `json:"stages,omitempty"`
 	Subdomains []Subdomain `json:"subdomains"`
 	DNSRecords []DNSRecord `json:"dns_records"`
 	TLSCerts   []TLSCert   `json:"tls_certs"`
 	IPInfo     []IPInfo    `json:"ip_info"`
 	PortScans  []PortScan  `json:"port_scans"`
+	// Vulnerabilities is set when the scan ran with Options.VulnLookup.
+	Vulnerabilities []ServiceVulnerabilities `json:"vulnerabilities,omitempty"`
 }
 
 // Options tunes the scanner. Zero values fall back to defaults.
@@ -157,6 +169,23 @@ type Options struct {
 	ServiceTimeout time.Duration
 	// ServiceWorkers is the number of ports probed in parallel.
 	ServiceWorkers int
+	// VulnLookup finds the CVEs affecting each detected service's version:
+	// NVD matches its versioned CPE against affected version ranges, and
+	// ProjectDiscovery's vulnerability API (vulnx) adds exploitation data.
+	// It requires ServiceDetection.
+	VulnLookup bool
+	// NVDAPIKey raises NVD's rate limit from 5 to 50 requests per 30s.
+	// Optional.
+	NVDAPIKey string
+	// NVDBaseURL defaults to https://services.nvd.nist.gov.
+	NVDBaseURL string
+	// PDCPAPIKey is a ProjectDiscovery Cloud API key for vulnx lookups, which
+	// raises their rate limit. Optional.
+	PDCPAPIKey string
+	// VulnxBaseURL defaults to https://api.projectdiscovery.io.
+	VulnxBaseURL string
+	// VulnConcurrency is the number of vulnx lookups in flight.
+	VulnConcurrency int
 	// Logger receives stage diagnostics. Defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -207,6 +236,15 @@ func (o Options) withDefaults() Options {
 	if o.ServiceWorkers <= 0 {
 		o.ServiceWorkers = 25
 	}
+	if o.NVDBaseURL == "" {
+		o.NVDBaseURL = "https://services.nvd.nist.gov"
+	}
+	if o.VulnxBaseURL == "" {
+		o.VulnxBaseURL = "https://api.projectdiscovery.io"
+	}
+	if o.VulnConcurrency <= 0 {
+		o.VulnConcurrency = 4
+	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -238,6 +276,9 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 	// Check service detection up front rather than after minutes of
 	// enumeration: naabu itself only warns and skips it without probes.
+	if s.opts.VulnLookup && !s.opts.ServiceDetection {
+		return nil, ErrVulnLookupNeedsServices
+	}
 	probesFile := ""
 	if s.opts.ServiceDetection {
 		if !s.opts.PortScan {
@@ -255,6 +296,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	res := &Result{Domain: domain}
 
 	progress(StageSubdomains)
+	res.Stages = append(res.Stages, StageSubdomains)
 	found, err := s.enumerateSubdomains(ctx, domain)
 	if err != nil {
 		return nil, fmt.Errorf("subdomain enumeration: %w", err)
@@ -267,6 +309,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 
 	progress(StageDNS)
+	res.Stages = append(res.Stages, StageDNS)
 	records, resolved, err := s.resolve(ctx, domain, hosts)
 	if err != nil {
 		return nil, fmt.Errorf("dns resolution: %w", err)
@@ -275,6 +318,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 
 	if !s.opts.SkipIPDR {
 		progress(StageIPDR)
+		res.Stages = append(res.Stages, StageIPDR)
 		res.IPInfo, err = s.lookupIPs(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("ip lookup: %w", err)
@@ -283,18 +327,31 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 
 	if s.opts.PortScan {
 		progress(StagePorts)
+		res.Stages = append(res.Stages, StagePorts)
+		if s.opts.ServiceDetection {
+			res.Stages = append(res.Stages, StageServices)
+		}
 		res.PortScans, err = s.scanPorts(ctx, resolved, probesFile)
 		if err != nil {
 			return nil, fmt.Errorf("port scanning: %w", err)
 		}
 	}
 
+	if s.opts.VulnLookup {
+		progress(StageVulns)
+		res.Stages = append(res.Stages, StageVulns)
+		res.Vulnerabilities, err = s.lookupVulns(ctx, res.Services())
+		if err != nil {
+			return nil, fmt.Errorf("vulnerability lookup: %w", err)
+		}
+	}
+
 	// TODO: ports with a TLS service can feed the TLS stage instead of the
-	// static TLSPorts list, and Result.Services can feed a vulnerability
-	// lookup stage (e.g. vulnx).
+	// static TLSPorts list.
 
 	if !s.opts.SkipCerts {
 		progress(StageCerts)
+		res.Stages = append(res.Stages, StageCerts)
 		res.TLSCerts, err = s.grabCerts(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("tls probing: %w", err)
