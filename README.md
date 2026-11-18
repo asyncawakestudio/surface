@@ -153,15 +153,14 @@ changed between scans).
 
 ## Disclaimer
 
-surface is for authorized security testing, such as assessing systems you own
-or have written permission to test. Scanning systems without permission may be
-illegal where you or the target are.
+**For authorized use only**. This tool is provided for educational and
+legitimate security testing purposes. You are solely responsible for obtaining
+proper authorization before use. Unauthorized use may be illegal.
 
-You are solely responsible for how you use it. It is provided "as is", without
-warranty of any kind, and its authors and contributors are not liable for any
-misuse, damage or legal consequences arising from its use (see the
-[license](LICENSE)). Results, including vulnerability matches, may be
-incomplete or wrong; verify them before acting on them.
+Provided "as is," with no warranties. The authors are not liable for any misuse
+or damages.
+
+_Use at your own risk._
 
 ## License
 
