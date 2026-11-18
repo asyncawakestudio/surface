@@ -26,7 +26,7 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default these stages run: subdomains, dns, ipdr, certs. The port scan is
+By default these stages run: subdomains, dns, ipdr, web, certs. The port scan is
 opt-in (--ports) since it probes every IP the domain resolves to, including
 hosting and CDN infrastructure you may not own.
 
@@ -35,14 +35,15 @@ Output:
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, certs
+  --skip <stages>       comma-separated stages to skip: ipdr, web, certs
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
+                        (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
                         (product, version, CPEs) using nmap's service probes;
                         needs nmap installed or --service-probes
-  --vulns               with --services, look up the CVEs affecting each
-                        detected service's version (NVD), with exploitation
+  --vulns               look up the CVEs affecting each detected service's
+                        and web technology's version (NVD), with exploitation
                         data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs)
   --quiet               suppress progress logging on stderr
 
@@ -80,17 +81,32 @@ and CPEs (CPE 2.3, the identifiers vulnerability databases use).
 - **Intrusive:** sends protocol probes to every open port, not just a
   connection attempt.
 
+### Web (on by default)
+
+Requests each host over HTTPS, falling back to HTTP, with
+[httpx](https://github.com/projectdiscovery/httpx) and records the status,
+redirect target, title, web server, technologies with versions (Wappalyzer
+fingerprints, e.g. `WordPress 6.4.1`) and the CDN or WAF in front of it.
+
+- **Ports:** with `--ports`, every open port that may serve HTTP (ports where
+  `--services` found e.g. SSH are skipped); otherwise 80 and 443.
+- One row per site: an IP and port often serve several hosts.
+- Redirects are not followed, so a `301` shows where it points.
+- Turn it off with `--skip web`.
+
 ### Vulnerabilities (`--vulns`)
 
-Lists the CVEs affecting each detected service's version, known-exploited
-first.
+Lists the CVEs affecting each detected service's and web technology's
+version, known-exploited first.
 
 | Step | Source | Gives |
 |------|--------|-------|
 | Match | [NVD](https://nvd.nist.gov/developers/vulnerabilities) | CVEs whose affected version ranges include the service's versioned CPE; CVSS severity |
 | Enrich | [vulnx](https://github.com/projectdiscovery/vulnx) | CISA KEV, EPSS, public PoCs, Nuclei template coverage |
 
-- **Requires** `--services`. Services without a versioned CPE are skipped.
+- **Works from** `--services` and the web stage; either is enough, so
+  `surface --vulns example.com` checks web technologies only. Products
+  without a versioned CPE are skipped.
 - **Keys (optional):** NVD allows 5 requests per 30s without a key, 50 with
   one ([request a key](https://nvd.nist.gov/developers/request-an-api-key));
   use `--nvd-api-key` or `NVD_API_KEY`. vulnx takes a ProjectDiscovery Cloud
@@ -134,14 +150,15 @@ scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceD
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
 // res.Services(): every identified service with its IP, hosts and port
-// res.Vulnerabilities: with VulnLookup, the CVEs affecting each service
+// res.Web: what each host serves over HTTP(S), with detected technologies
+// res.Vulnerabilities: with VulnLookup, the CVEs affecting each service and technology
 ```
 
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
 `"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
 changed between scans): subdomains, DNS records, IP data, certificates, open ports,
-service versions and CVEs. Ports and CVEs are only compared when both scans looked for
-them (`Result.Stages`).
+service versions, web pages and CVEs. Ports, web pages and CVEs are only compared when
+both scans looked for them (`Result.Stages`).
 
 ## Building
 

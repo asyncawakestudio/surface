@@ -83,6 +83,9 @@ func flatten(r *asm.Result) []record {
 			}
 		}
 	}
+	for _, wp := range r.Web {
+		rows = append(rows, record{Type: "web", Host: wp.Host, IP: wp.IP, Port: wp.Port, Field: wp.URL, Value: webDetails(wp)})
+	}
 	for _, sv := range r.Vulnerabilities {
 		for _, v := range sv.Vulnerabilities {
 			rows = append(rows, record{Type: "vuln", IP: sv.IP, Port: sv.Port, Field: v.ID, Value: vulnDetails(v, sv.CPE)})
@@ -179,10 +182,21 @@ func renderText(w io.Writer, r *asm.Result) error {
 		}
 	}
 
+	if len(r.Web) > 0 {
+		width := 0
+		for _, wp := range r.Web {
+			width = max(width, len(wp.URL))
+		}
+		p("\nWeb (%d)\n", len(r.Web))
+		for _, wp := range r.Web {
+			p("  %-*s  %s\n", width, wp.URL, webSummary(wp))
+		}
+	}
+
 	if len(r.Vulnerabilities) > 0 {
 		p("\nVulnerabilities\n")
 		for _, sv := range r.Vulnerabilities {
-			p("  %s:%d  %s (%d CVEs)\n", sv.IP, sv.Port, serviceSummary(sv.Service), len(sv.Vulnerabilities))
+			p("  %s:%d%s  %s (%d CVEs)\n", sv.IP, sv.Port, hostsSuffix(sv.Hosts), serviceSummary(sv.Service), len(sv.Vulnerabilities))
 			for _, v := range sv.Vulnerabilities {
 				p("    %-16s %-8s %4.1f  %s%s\n", v.ID, v.Severity, v.CVSSScore, vulnTitle(v), vulnFlags(v))
 			}
@@ -229,6 +243,64 @@ func serviceDetails(s asm.Service) string {
 	}
 	add("cpe", strings.Join(s.CPEs, "|"))
 	return strings.Join(parts, "; ")
+}
+
+// webSummary is a page's line in the txt report, e.g.
+// `200  "Home"  Nginx 1.18.0 · WordPress 6.4.1  [cloudflare]`.
+func webSummary(wp asm.WebPage) string {
+	parts := []string{strconv.Itoa(wp.StatusCode)}
+	if wp.Location != "" {
+		parts = append(parts, "→ "+wp.Location)
+	}
+	if wp.Title != "" {
+		parts = append(parts, strconv.Quote(wp.Title))
+	}
+	if techs := techNames(wp.Technologies); techs != "" {
+		parts = append(parts, techs)
+	} else if wp.WebServer != "" {
+		parts = append(parts, wp.WebServer)
+	}
+	if wp.CDN != "" {
+		parts = append(parts, "["+wp.CDN+"]")
+	}
+	return strings.Join(parts, "  ")
+}
+
+// webDetails is the value of a csv/xml web row.
+func webDetails(wp asm.WebPage) string {
+	parts := []string{fmt.Sprintf("status=%d", wp.StatusCode)}
+	add := func(k, v string) {
+		if v != "" {
+			parts = append(parts, k+"="+v)
+		}
+	}
+	add("location", wp.Location)
+	add("title", wp.Title)
+	add("server", wp.WebServer)
+	add("tech", strings.ReplaceAll(techNames(wp.Technologies), " · ", "|"))
+	add("cdn", wp.CDN)
+	return strings.Join(parts, "; ")
+}
+
+// techNames lists technologies as "Name Version · Name".
+func techNames(techs []asm.Technology) string {
+	names := make([]string, len(techs))
+	for i, t := range techs {
+		names[i] = strings.TrimSpace(t.Name + " " + t.Version)
+	}
+	return strings.Join(names, " · ")
+}
+
+// hostsSuffix names up to three hosts, e.g. " (a.example.com, b.example.com +2)".
+func hostsSuffix(hosts []string) string {
+	if len(hosts) == 0 {
+		return ""
+	}
+	const maxHosts = 3
+	if len(hosts) <= maxHosts {
+		return " (" + strings.Join(hosts, ", ") + ")"
+	}
+	return fmt.Sprintf(" (%s +%d)", strings.Join(hosts[:maxHosts], ", "), len(hosts)-maxHosts)
 }
 
 // vulnTitle is vulnx's short name, or the start of NVD's description.

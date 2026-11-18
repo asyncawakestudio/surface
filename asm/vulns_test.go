@@ -261,7 +261,7 @@ func TestLookupVulnsNoVersionedCPEs(t *testing.T) {
 }
 
 func TestRunVulnLookupNeedsServiceDetection(t *testing.T) {
-	_, err := New(Options{PortScan: true, VulnLookup: true}).Run(t.Context(), Target{Domain: "example.com"}, nil)
+	_, err := New(Options{PortScan: true, VulnLookup: true, SkipWeb: true}).Run(t.Context(), Target{Domain: "example.com"}, nil)
 	if !errors.Is(err, ErrVulnLookupNeedsServices) {
 		t.Fatalf("err = %v, want ErrVulnLookupNeedsServices", err)
 	}

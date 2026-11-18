@@ -14,8 +14,8 @@ import (
 )
 
 // ErrVulnLookupNeedsServices is returned when the vulnerability lookup is
-// requested without the service detection it works from.
-var ErrVulnLookupNeedsServices = errors.New("vulnerability lookup requires service detection (Options.ServiceDetection)")
+// requested with neither service detection nor the web stage to work from.
+var ErrVulnLookupNeedsServices = errors.New("vulnerability lookup requires service detection (Options.ServiceDetection) or the web stage")
 
 // Vulnerability is a CVE affecting a detected service's version.
 //
