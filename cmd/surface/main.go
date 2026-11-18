@@ -4,6 +4,7 @@
 //	surface --output=json example.com   # machine-readable JSON
 //	surface --ports --skip=certs example.com
 //	surface --ports --services example.com
+//	surface --ports --services --vulns example.com
 //
 // It runs the same engine the MCP server and the cloud product use.
 package main
@@ -67,6 +68,9 @@ Output:
   --services            with --ports, identify the service on each open port
                         (product, version, CPEs) using nmap's service probes;
                         needs nmap installed or --service-probes
+  --vulns               with --services, look up the CVEs affecting each
+                        detected service's version (NVD), with exploitation
+                        data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs)
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
@@ -81,6 +85,10 @@ Tuning (all optional):
   --port-rate <n>           packets/sec for the port scan
   --service-probes <f>      nmap-service-probes file for --services
                             (defaults to a local nmap installation's copy)
+  --nvd-api-key <key>       NVD API key for --vulns: 10x higher rate limit
+                            (default: $NVD_API_KEY)
+  --pdcp-api-key <key>      ProjectDiscovery Cloud API key for --vulns
+                            (default: $PDCP_API_KEY)
 `)
 }
 
@@ -102,6 +110,9 @@ func runScan(args []string) int {
 		portRate  = fs.Int("port-rate", 0, "packets/sec for the port scan")
 		services  = fs.Bool("services", false, "identify the service on each open port (needs --ports)")
 		probes    = fs.String("service-probes", "", "nmap-service-probes file for --services")
+		vulns     = fs.Bool("vulns", false, "look up CVEs for detected services (needs --services)")
+		nvdKey    = fs.String("nvd-api-key", os.Getenv("NVD_API_KEY"), "NVD API key for --vulns")
+		pdcpKey   = fs.String("pdcp-api-key", os.Getenv("PDCP_API_KEY"), "ProjectDiscovery Cloud API key for --vulns")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -122,8 +133,8 @@ func runScan(args []string) int {
 		fmt.Fprintln(os.Stderr, "error: --port-type, --port-spec, --port-rate and --services require --ports")
 		return 2
 	}
-	if !*services && *probes != "" {
-		fmt.Fprintln(os.Stderr, "error: --service-probes requires --services")
+	if !*services && (*probes != "" || *vulns) {
+		fmt.Fprintln(os.Stderr, "error: --service-probes and --vulns require --services")
 		return 2
 	}
 
@@ -135,6 +146,9 @@ func runScan(args []string) int {
 		PortRate:      *portRate,
 		Services:      *services,
 		ServiceProbes: *probes,
+		Vulns:         *vulns,
+		NVDAPIKey:     *nvdKey,
+		PDCPAPIKey:    *pdcpKey,
 		IPInfoToken:   *ipToken,
 		SubfinderCfg:  *sfConfig,
 	}

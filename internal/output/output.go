@@ -83,6 +83,11 @@ func flatten(r *asm.Result) []record {
 			}
 		}
 	}
+	for _, sv := range r.Vulnerabilities {
+		for _, v := range sv.Vulnerabilities {
+			rows = append(rows, record{Type: "vuln", IP: sv.IP, Port: sv.Port, Field: v.ID, Value: vulnDetails(v, sv.CPE)})
+		}
+	}
 	for _, c := range r.TLSCerts {
 		rows = append(rows, record{
 			Type: "certs", Host: c.Host, Port: c.Port, Field: "cert",
@@ -174,6 +179,16 @@ func renderText(w io.Writer, r *asm.Result) error {
 		}
 	}
 
+	if len(r.Vulnerabilities) > 0 {
+		p("\nVulnerabilities\n")
+		for _, sv := range r.Vulnerabilities {
+			p("  %s:%d  %s (%d CVEs)\n", sv.IP, sv.Port, serviceSummary(sv.Service), len(sv.Vulnerabilities))
+			for _, v := range sv.Vulnerabilities {
+				p("    %-16s %-8s %4.1f  %s%s\n", v.ID, v.Severity, v.CVSSScore, vulnTitle(v), vulnFlags(v))
+			}
+		}
+	}
+
 	p("\nTLS certificates (%d)\n", len(r.TLSCerts))
 	for _, c := range r.TLSCerts {
 		p("  %s:%d  %s  (issuer: %s)%s\n", c.Host, c.Port, c.SubjectCN, c.IssuerCN, flagSuffix(c))
@@ -213,6 +228,56 @@ func serviceDetails(s asm.Service) string {
 		parts = append(parts, "tls")
 	}
 	add("cpe", strings.Join(s.CPEs, "|"))
+	return strings.Join(parts, "; ")
+}
+
+// vulnTitle is vulnx's short name, or the start of NVD's description.
+func vulnTitle(v asm.Vulnerability) string {
+	if v.Name != "" {
+		return v.Name
+	}
+	const maxLen = 70
+	d := strings.Join(strings.Fields(v.Description), " ")
+	if len(d) > maxLen {
+		return d[:maxLen] + "..."
+	}
+	return d
+}
+
+// vulnFlags marks what makes a CVE urgent, e.g. "  [KEV, 19 PoCs, EPSS 0.80]".
+func vulnFlags(v asm.Vulnerability) string {
+	var f []string
+	if v.KEV {
+		f = append(f, "KEV")
+	}
+	if v.PoCs > 0 {
+		f = append(f, fmt.Sprintf("%d PoCs", v.PoCs))
+	}
+	if v.NucleiTemplate {
+		f = append(f, "nuclei")
+	}
+	if v.EPSSScore > 0 {
+		f = append(f, fmt.Sprintf("EPSS %.2f", v.EPSSScore))
+	}
+	if len(f) == 0 {
+		return ""
+	}
+	return "  [" + strings.Join(f, ", ") + "]"
+}
+
+// vulnDetails is the value of a csv/xml vuln row.
+func vulnDetails(v asm.Vulnerability, cpe string) string {
+	parts := []string{"severity=" + v.Severity, fmt.Sprintf("cvss=%.1f", v.CVSSScore)}
+	if v.KEV {
+		parts = append(parts, "kev")
+	}
+	if v.Enriched {
+		parts = append(parts, fmt.Sprintf("epss=%.4f", v.EPSSScore), fmt.Sprintf("pocs=%d", v.PoCs))
+	}
+	if v.NucleiTemplate {
+		parts = append(parts, "nuclei")
+	}
+	parts = append(parts, "cpe="+cpe)
 	return strings.Join(parts, "; ")
 }
 

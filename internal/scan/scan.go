@@ -29,6 +29,9 @@ type Params struct {
 	PortRate      int
 	Services      bool   // identify the service on each open port (needs Ports)
 	ServiceProbes string // nmap-service-probes path; empty = local nmap's copy
+	Vulns         bool   // look up CVEs for detected services (needs Services)
+	NVDAPIKey     string // optional; raises NVD's rate limit
+	PDCPAPIKey    string // optional; ProjectDiscovery Cloud key for vulnx
 	Resolvers     []string
 	IPInfoToken   string
 	SubfinderCfg  string
@@ -60,6 +63,9 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		PortScanRate:            p.PortRate,
 		ServiceDetection:        p.Services,
 		ServiceProbesFile:       p.ServiceProbes,
+		VulnLookup:              p.Vulns,
+		NVDAPIKey:               p.NVDAPIKey,
+		PDCPAPIKey:              p.PDCPAPIKey,
 		Logger:                  logs,
 	}
 }

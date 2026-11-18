@@ -170,7 +170,7 @@ func (s *server) cancel(params json.RawMessage) {
 
 var tools = []map[string]any{{
 	"name":        "scan",
-	"description": "Run attack-surface discovery against a domain: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. With `services` (requires `ports`), each open port is actively probed to identify its service (product, version, CPEs); this needs nmap installed on the server, or `service_probes`. Port scanning is not available in Windows ARM64 builds. Use `skip` to turn stages off. Returns the full result as JSON.",
+	"description": "Run attack-surface discovery against a domain: passive subdomain enumeration (subfinder), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. With `services` (requires `ports`), each open port is actively probed to identify its service (product, version, CPEs); this needs nmap installed on the server, or `service_probes`. With `vulns` (requires `services`), the CVEs affecting each detected service's version are looked up (NVD) with exploitation data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs); the server reads optional API keys from NVD_API_KEY and PDCP_API_KEY. Port scanning is not available in Windows ARM64 builds. Use `skip` to turn stages off. Returns the full result as JSON.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -182,6 +182,7 @@ var tools = []map[string]any{{
 			"port_rate":        map[string]any{"type": "integer", "description": "Packets/sec for the port scan"},
 			"services":         map[string]any{"type": "boolean", "description": "Identify the service on each open port: product, version, CPEs (requires ports; default false)"},
 			"service_probes":   map[string]any{"type": "string", "description": "Path to an nmap-service-probes file for services (defaults to a local nmap installation's copy)"},
+			"vulns":            map[string]any{"type": "boolean", "description": "Look up the CVEs affecting each detected service's version, with KEV/EPSS/PoC data (requires services; default false)"},
 			"resolvers":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "DNS resolvers, e.g. udp:1.1.1.1:53"},
 			"ipinfo_token":     map[string]any{"type": "string", "description": "ipinfo.io API token (optional)"},
 			"subfinder_config": map[string]any{"type": "string", "description": "Path to subfinder provider-config.yaml for API-key sources"},
@@ -199,6 +200,7 @@ type scanArgs struct {
 	PortRate        int      `json:"port_rate"`
 	Services        bool     `json:"services"`
 	ServiceProbes   string   `json:"service_probes"`
+	Vulns           bool     `json:"vulns"`
 	Resolvers       []string `json:"resolvers"`
 	IPInfoToken     string   `json:"ipinfo_token"`
 	SubfinderConfig string   `json:"subfinder_config"`
@@ -233,8 +235,8 @@ func (s *server) handleToolCall(ctx context.Context, req *request) {
 		s.reply(req, toolError("port_type, port_spec, port_rate and services require ports: true"))
 		return
 	}
-	if !a.Services && a.ServiceProbes != "" {
-		s.reply(req, toolError("service_probes requires services: true"))
+	if !a.Services && (a.ServiceProbes != "" || a.Vulns) {
+		s.reply(req, toolError("service_probes and vulns require services: true"))
 		return
 	}
 
@@ -246,9 +248,13 @@ func (s *server) handleToolCall(ctx context.Context, req *request) {
 		PortRate:      a.PortRate,
 		Services:      a.Services,
 		ServiceProbes: a.ServiceProbes,
-		Resolvers:     a.Resolvers,
-		IPInfoToken:   a.IPInfoToken,
-		SubfinderCfg:  a.SubfinderConfig,
+		Vulns:         a.Vulns,
+		// API keys come from the server's environment, never tool arguments.
+		NVDAPIKey:    os.Getenv("NVD_API_KEY"),
+		PDCPAPIKey:   os.Getenv("PDCP_API_KEY"),
+		Resolvers:    a.Resolvers,
+		IPInfoToken:  a.IPInfoToken,
+		SubfinderCfg: a.SubfinderConfig,
 	}
 	if err := p.ApplySkips(a.Skip); err != nil {
 		s.reply(req, toolError(err.Error()))

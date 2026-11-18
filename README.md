@@ -40,6 +40,9 @@ Output:
   --services            with --ports, identify the service on each open port
                         (product, version, CPEs) using nmap's service probes;
                         needs nmap installed or --service-probes
+  --vulns               with --services, look up the CVEs affecting each
+                        detected service's version (NVD), with exploitation
+                        data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs)
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
@@ -54,6 +57,10 @@ Tuning (all optional):
   --port-rate <n>           packets/sec for the port scan
   --service-probes <f>      nmap-service-probes file for --services
                             (defaults to a local nmap installation's copy)
+  --nvd-api-key <key>       NVD API key for --vulns: 10x higher rate limit
+                            (default: $NVD_API_KEY)
+  --pdcp-api-key <key>      ProjectDiscovery Cloud API key for --vulns
+                            (default: $PDCP_API_KEY)
 ```
 
 The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
@@ -68,6 +75,18 @@ doesn't ship it, since it is covered by nmap's own license. The scan stops at
 the start if the file can't be found. Each identified port gets a `service`
 with its CPEs in CPE 2.3 form, the identifiers vulnerability databases use.
 
+`--vulns` looks up the CVEs affecting each detected service's version. NVD
+matches the service's versioned CPE against each CVE's affected version
+ranges; [vulnx](https://github.com/projectdiscovery/vulnx) then adds whether
+it is known exploited (CISA KEV), its EPSS score, public PoCs and Nuclei
+template coverage. Known-exploited CVEs are listed first. Both APIs work
+without keys, but NVD allows only 5 requests per 30 seconds without one
+([request a key](https://nvd.nist.gov/developers/request-an-api-key)), so a
+scan with many distinct service versions is slow. Matching is by version
+only: Linux distributions often backport fixes without changing the upstream
+version (e.g. `OpenSSH 8.9p1 Ubuntu 3ubuntu0.10`), so check listed CVEs
+against your distribution's advisories.
+
 ## MCP
 
 `surface-mcp` speaks the Model Context Protocol over stdio (newline-delimited
@@ -81,8 +100,9 @@ JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at the binary:
 }
 ```
 
-The `scan` tool takes `{ "domain": "example.com", "ports": true, "services": true, ... }` (same
-options as the CLI flags) and returns the full result as JSON text. Scans run
+The `scan` tool takes `{ "domain": "example.com", "ports": true, "services": true, "vulns": true, ... }` (same
+options as the CLI flags; API keys come from the server's `NVD_API_KEY` and
+`PDCP_API_KEY` environment variables) and returns the full result as JSON text. Scans run
 concurrently and stop on `notifications/cancelled`. Quick manual check:
 
 ```sh
@@ -101,6 +121,7 @@ scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceD
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
 // res.Services(): every identified service with its IP, hosts and port
+// res.Vulnerabilities: with VulnLookup, the CVEs affecting each service
 ```
 
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
