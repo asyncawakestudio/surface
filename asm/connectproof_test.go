@@ -8,7 +8,7 @@ import "testing"
 // a raw SYN scan's replies may not return. scanme.nmap.org authorizes scans.
 func TestConnectScanFindsPorts(t *testing.T) {
 	s := New(Options{PortScan: true, PortScanType: "connect", PortScanPorts: "22,80", PortScanRetries: 1})
-	got, err := s.scanPorts(t.Context(), []resolvedHost{{Host: "scanme.nmap.org", IPs: []string{"45.33.32.156"}}})
+	got, err := s.scanPorts(t.Context(), []resolvedHost{{Host: "scanme.nmap.org", IPs: []string{"45.33.32.156"}}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

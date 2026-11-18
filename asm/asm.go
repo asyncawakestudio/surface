@@ -5,7 +5,8 @@
 //	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> ports (naabu) -> certs (tlsx)
 //
 // ipdr, ports and certs work from the hosts the DNS stage resolved. ports is
-// opt-in (Options.PortScan).
+// opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
+// also identifies the service on each open port (see Service).
 package asm
 
 import (
@@ -143,6 +144,19 @@ type Options struct {
 	PortScanThreads int
 	// PortScanTimeout is the per-port timeout.
 	PortScanTimeout time.Duration
+	// ServiceDetection identifies the service on each open port (product,
+	// version, CPEs) by actively probing it with nmap's service probes. It
+	// requires PortScan and an nmap-service-probes file (see
+	// ServiceProbesFile). Off by default: probes send protocol payloads, not
+	// just connection attempts.
+	ServiceDetection bool
+	// ServiceProbesFile is the path to an nmap-service-probes file. When
+	// empty, a local nmap installation's copy is used.
+	ServiceProbesFile string
+	// ServiceTimeout is the per-probe timeout.
+	ServiceTimeout time.Duration
+	// ServiceWorkers is the number of ports probed in parallel.
+	ServiceWorkers int
 	// Logger receives stage diagnostics. Defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -187,6 +201,12 @@ func (o Options) withDefaults() Options {
 	if o.PortScanTimeout <= 0 {
 		o.PortScanTimeout = time.Second
 	}
+	if o.ServiceTimeout <= 0 {
+		o.ServiceTimeout = 5 * time.Second
+	}
+	if o.ServiceWorkers <= 0 {
+		o.ServiceWorkers = 25
+	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -215,6 +235,18 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 	if s.opts.PortScan && !PortScanSupported {
 		return nil, ErrPortScanUnsupported
+	}
+	// Check service detection up front rather than after minutes of
+	// enumeration: naabu itself only warns and skips it without probes.
+	probesFile := ""
+	if s.opts.ServiceDetection {
+		if !s.opts.PortScan {
+			return nil, ErrServiceDetectionNeedsPortScan
+		}
+		probesFile, err = s.serviceProbesFile()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if progress == nil {
 		progress = func(Stage) {}
@@ -251,14 +283,15 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 
 	if s.opts.PortScan {
 		progress(StagePorts)
-		res.PortScans, err = s.scanPorts(ctx, resolved)
+		res.PortScans, err = s.scanPorts(ctx, resolved, probesFile)
 		if err != nil {
 			return nil, fmt.Errorf("port scanning: %w", err)
 		}
 	}
 
-	// TODO: service enumeration goes here, and discovered open ports can feed
-	// the TLS stage instead of the static TLSPorts list.
+	// TODO: ports with a TLS service can feed the TLS stage instead of the
+	// static TLSPorts list, and Result.Services can feed a vulnerability
+	// lookup stage (e.g. vulnx).
 
 	if !s.opts.SkipCerts {
 		progress(StageCerts)

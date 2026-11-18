@@ -13,6 +13,9 @@ var ErrPortScanUnsupported = errors.New("port scanning is not supported on this 
 type OpenPort struct {
 	Port     int    `json:"port"`
 	Protocol string `json:"protocol"`
+	// Service is what runs on the port. It is set only when the scan ran with
+	// Options.ServiceDetection and the port's service was identified.
+	Service *Service `json:"service,omitempty"`
 }
 
 // PortScan is the set of open ports found on one IPv4 address, with the

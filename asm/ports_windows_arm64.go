@@ -8,7 +8,7 @@ import "context"
 const PortScanSupported = false
 
 // scanPorts is unavailable on windows/arm64; Run rejects PortScan before reaching it.
-func (s *Scanner) scanPorts(_ context.Context, hosts []resolvedHost) ([]PortScan, error) {
+func (s *Scanner) scanPorts(_ context.Context, hosts []resolvedHost, _ string) ([]PortScan, error) {
 	if len(ipv4Hosts(hosts)) == 0 {
 		return nil, nil
 	}
@@ -16,3 +16,9 @@ func (s *Scanner) scanPorts(_ context.Context, hosts []resolvedHost) ([]PortScan
 }
 
 func isPrivilegedScan() bool { return false }
+
+// serviceProbesFile is unreachable on windows/arm64: Run rejects PortScan,
+// which service detection requires, first.
+func (s *Scanner) serviceProbesFile() (string, error) {
+	return "", ErrPortScanUnsupported
+}

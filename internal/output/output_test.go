@@ -94,3 +94,49 @@ func TestRenderJSONFull(t *testing.T) {
 		t.Errorf("round-trip lost data: %+v", r)
 	}
 }
+
+func withService() *asm.Result {
+	r := sample()
+	r.PortScans = []asm.PortScan{{IP: "1.2.3.4", Ports: []asm.OpenPort{
+		{Port: 22, Protocol: "tcp", Service: &asm.Service{
+			Name: "ssh", Product: "OpenSSH", Version: "8.9p1",
+			CPEs: []string{"cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*"},
+		}},
+		{Port: 443, Protocol: "tcp", Service: &asm.Service{Name: "http", Product: "nginx", TLS: true}},
+		{Port: 8080, Protocol: "tcp"},
+	}}}
+	return r
+}
+
+func TestRenderServices(t *testing.T) {
+	cases := map[string][]string{
+		"txt": {"22/tcp (ssh OpenSSH 8.9p1)", "443/tcp (http/tls nginx)", "8080/tcp"},
+		"csv": {
+			"port,,1.2.3.4,22,tcp,open",
+			"service,,1.2.3.4,22,ssh,product=OpenSSH; version=8.9p1; cpe=cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*",
+			"service,,1.2.3.4,443,http,product=nginx; tls",
+		},
+		"xml":  {`<record type="service" ip="1.2.3.4" port="22" field="ssh">product=OpenSSH; version=8.9p1;`},
+		"json": {`"service": {`, `"product": "OpenSSH"`, `"cpes": [`},
+	}
+	for format, wants := range cases {
+		var b strings.Builder
+		if err := Render(&b, withService(), format); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		for _, want := range wants {
+			if !strings.Contains(b.String(), want) {
+				t.Errorf("%s output missing %q:\n%s", format, want, b.String())
+			}
+		}
+	}
+
+	// A port without a detected service has no service row.
+	var b strings.Builder
+	if err := Render(&b, withService(), "csv"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "service,,1.2.3.4,8080") {
+		t.Error("csv has a service row for a port without a service")
+	}
+}

@@ -37,7 +37,7 @@ func TestIPv4Hosts(t *testing.T) {
 func TestScanPortsNoIPv4(t *testing.T) {
 	// Only IPv6 resolved: naabu must not be invoked and no error returned.
 	s := New(Options{PortScan: true})
-	got, err := s.scanPorts(t.Context(), []resolvedHost{{Host: "v6.example.com", IPs: []string{"2606:2800::1"}}})
+	got, err := s.scanPorts(t.Context(), []resolvedHost{{Host: "v6.example.com", IPs: []string{"2606:2800::1"}}}, "")
 	if err != nil || got != nil {
 		t.Fatalf("scanPorts = %v, %v; want nil, nil", got, err)
 	}

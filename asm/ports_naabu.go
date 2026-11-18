@@ -5,12 +5,15 @@ package asm
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/projectdiscovery/goflags"
+	"github.com/projectdiscovery/naabu/v2/pkg/fingerprint"
+	"github.com/projectdiscovery/naabu/v2/pkg/port"
 	"github.com/projectdiscovery/naabu/v2/pkg/privileges"
 	"github.com/projectdiscovery/naabu/v2/pkg/result"
 	"github.com/projectdiscovery/naabu/v2/pkg/runner"
@@ -27,7 +30,10 @@ const PortScanSupported = true
 // A SYN (half-open) scan needs raw-socket privileges (root or CAP_NET_RAW).
 // Without them naabu falls back to a TCP connect scan on its own; we log the
 // effective mode so the distinction is visible.
-func (s *Scanner) scanPorts(ctx context.Context, hosts []resolvedHost) ([]PortScan, error) {
+//
+// When probesFile is set, naabu also identifies the service on each open port
+// (its -sV) and the result is attached to OpenPort.Service.
+func (s *Scanner) scanPorts(ctx context.Context, hosts []resolvedHost, probesFile string) ([]PortScan, error) {
 	ipToHosts := ipv4Hosts(hosts)
 	if len(ipToHosts) == 0 {
 		return nil, nil
@@ -69,9 +75,19 @@ func (s *Scanner) scanPorts(ctx context.Context, hosts []resolvedHost) ([]PortSc
 				portsByIP[hr.IP] = append(portsByIP[hr.IP], OpenPort{
 					Port:     p.Port,
 					Protocol: p.Protocol.String(),
+					Service:  serviceFromNaabu(p.Service),
 				})
 			}
 		},
+	}
+	if probesFile != "" {
+		// naabu fingerprints open ports after the scan and attaches the
+		// results before calling OnResult. Note: enabling it also turns on
+		// naabu's process-wide TLS detection for connect scans.
+		options.ServiceVersion = true
+		options.ServiceProbesFile = probesFile
+		options.ServiceVersionTimeout = s.opts.ServiceTimeout
+		options.ServiceVersionWorkers = s.opts.ServiceWorkers
 	}
 
 	naabuRunner, err := runner.NewRunner(options)
@@ -82,7 +98,8 @@ func (s *Scanner) scanPorts(ctx context.Context, hosts []resolvedHost) ([]PortSc
 
 	s.opts.Logger.Info("ports: scanning",
 		"ips", len(targets), "ports", s.opts.PortScanPorts,
-		"type", scanType, "privileged", isPrivilegedScan())
+		"type", scanType, "privileged", isPrivilegedScan(),
+		"services", probesFile != "")
 
 	if err := naabuRunner.RunEnumeration(ctx); err != nil {
 		return nil, fmt.Errorf("naabu scan: %w", err)
@@ -111,4 +128,37 @@ func (s *Scanner) scanPorts(ctx context.Context, hosts []resolvedHost) ([]PortSc
 // true SYN scan requires. naabu sets this at init from the OS capabilities.
 func isPrivilegedScan() bool {
 	return privileges.IsPrivileged
+}
+
+// serviceProbesFile returns the nmap-service-probes file service detection
+// will use: Options.ServiceProbesFile, or a local nmap installation's copy.
+func (s *Scanner) serviceProbesFile() (string, error) {
+	if path := s.opts.ServiceProbesFile; path != "" {
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("service probes file: %w", err)
+		}
+		return path, nil
+	}
+	if path := fingerprint.LocateNmapProbes(); path != "" {
+		return path, nil
+	}
+	return "", ErrServiceProbesNotFound
+}
+
+// serviceFromNaabu converts naabu's service match. It returns nil when there
+// is no match.
+func serviceFromNaabu(svc *port.Service) *Service {
+	if svc == nil || svc.Name == "" {
+		return nil
+	}
+	return &Service{
+		Name:       svc.Name,
+		Product:    svc.Product,
+		Version:    svc.Version,
+		ExtraInfo:  svc.ExtraInfo,
+		TLS:        strings.EqualFold(svc.Tunnel, "ssl"),
+		CPEs:       normalizeCPEs(svc.CPEs),
+		Confidence: svc.Confidence,
+		Banner:     truncateBanner(svc.Banner),
+	}
 }

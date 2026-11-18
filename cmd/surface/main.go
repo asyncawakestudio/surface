@@ -3,6 +3,7 @@
 //	surface example.com                 # scan, human-readable report
 //	surface --output=json example.com   # machine-readable JSON
 //	surface --ports --skip=certs example.com
+//	surface --ports --services example.com
 //
 // It runs the same engine the MCP server and the cloud product use.
 package main
@@ -63,6 +64,9 @@ Output:
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
+  --services            with --ports, identify the service on each open port
+                        (product, version, CPEs) using nmap's service probes;
+                        needs nmap installed or --service-probes
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
@@ -75,6 +79,8 @@ Tuning (all optional):
                             and libpcap)
   --port-spec <s>           -, 1-1000, 80,443 (default -)
   --port-rate <n>           packets/sec for the port scan
+  --service-probes <f>      nmap-service-probes file for --services
+                            (defaults to a local nmap installation's copy)
 `)
 }
 
@@ -94,6 +100,8 @@ func runScan(args []string) int {
 		portType  = fs.String("port-type", "", "port scan mode: connect or syn")
 		portSpec  = fs.String("port-spec", "", "ports to scan: -, 1-1000, 80,443")
 		portRate  = fs.Int("port-rate", 0, "packets/sec for the port scan")
+		services  = fs.Bool("services", false, "identify the service on each open port (needs --ports)")
+		probes    = fs.String("service-probes", "", "nmap-service-probes file for --services")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -110,19 +118,25 @@ func runScan(args []string) int {
 		return 2
 	}
 
-	if !*ports && (*portType != "" || *portSpec != "" || *portRate != 0) {
-		fmt.Fprintln(os.Stderr, "error: --port-type, --port-spec and --port-rate require --ports")
+	if !*ports && (*portType != "" || *portSpec != "" || *portRate != 0 || *services) {
+		fmt.Fprintln(os.Stderr, "error: --port-type, --port-spec, --port-rate and --services require --ports")
+		return 2
+	}
+	if !*services && *probes != "" {
+		fmt.Fprintln(os.Stderr, "error: --service-probes requires --services")
 		return 2
 	}
 
 	p := scan.Params{
-		Domain:       rest[0],
-		Ports:        *ports,
-		PortType:     *portType,
-		PortSpec:     *portSpec,
-		PortRate:     *portRate,
-		IPInfoToken:  *ipToken,
-		SubfinderCfg: *sfConfig,
+		Domain:        rest[0],
+		Ports:         *ports,
+		PortType:      *portType,
+		PortSpec:      *portSpec,
+		PortRate:      *portRate,
+		Services:      *services,
+		ServiceProbes: *probes,
+		IPInfoToken:   *ipToken,
+		SubfinderCfg:  *sfConfig,
 	}
 	if *skip != "" {
 		if err := p.ApplySkips(splitComma(*skip)); err != nil {
