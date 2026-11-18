@@ -17,7 +17,7 @@ func TestScanPortsLive(t *testing.T) {
 	})
 	hosts := []resolvedHost{{Host: "scanme.nmap.org", IPs: []string{"45.33.32.156", "2600:3c01::f03c:91ff:fe18:bb2f"}}}
 
-	got, err := s.scanPorts(t.Context(), hosts)
+	got, err := s.scanPorts(t.Context(), hosts, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,4 +34,26 @@ func TestScanPortsLive(t *testing.T) {
 			t.Errorf("unexpected protocol %q", p.Protocol)
 		}
 	}
+}
+
+// With nmap installed, also identify the services: scanme.nmap.org runs
+// OpenSSH on 22.
+func TestScanPortsServicesLive(t *testing.T) {
+	s := New(Options{PortScan: true, ServiceDetection: true, PortScanPorts: "22", PortScanRate: 200})
+	probes, err := s.serviceProbesFile()
+	if err != nil {
+		t.Skip(err)
+	}
+	got, err := s.scanPorts(t.Context(), []resolvedHost{{Host: "scanme.nmap.org", IPs: []string{"45.33.32.156"}}}, probes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got[0].Ports) == 0 {
+		t.Skip("port 22 not reported open (network egress likely blocked in this env)")
+	}
+	svc := got[0].Ports[0].Service
+	if svc == nil || svc.Name != "ssh" || svc.Product != "OpenSSH" {
+		t.Errorf("service on 22 = %+v, want OpenSSH", svc)
+	}
+	t.Logf("services: %+v", got[0].Ports)
 }

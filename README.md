@@ -37,6 +37,9 @@ Output:
   --skip <stages>       comma-separated stages to skip: ipdr, certs
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
+  --services            with --ports, identify the service on each open port
+                        (product, version, CPEs) using nmap's service probes;
+                        needs nmap installed or --service-probes
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
@@ -49,11 +52,21 @@ Tuning (all optional):
                             and libpcap)
   --port-spec <s>           -, 1-1000, 80,443 (default -)
   --port-rate <n>           packets/sec for the port scan
+  --service-probes <f>      nmap-service-probes file for --services
+                            (defaults to a local nmap installation's copy)
 ```
 
 The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
 and libpcap installed at runtime (`apt install libpcap0.8`, preinstalled on
 macOS). `connect` needs neither.
+
+`--services` sends protocol probes to every open port, not just a connection
+attempt, so it is opt-in on top of `--ports`. It reads nmap's
+`nmap-service-probes` file from a local nmap installation
+(`apt install nmap`, `brew install nmap`) or from `--service-probes`; surface
+doesn't ship it, since it is covered by nmap's own license. The scan stops at
+the start if the file can't be found. Each identified port gets a `service`
+with its CPEs in CPE 2.3 form, the identifiers vulnerability databases use.
 
 ## MCP
 
@@ -68,7 +81,7 @@ JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at the binary:
 }
 ```
 
-The `scan` tool takes `{ "domain": "example.com", "ports": true, ... }` (same
+The `scan` tool takes `{ "domain": "example.com", "ports": true, "services": true, ... }` (same
 options as the CLI flags) and returns the full result as JSON text. Scans run
 concurrently and stop on `notifications/cancelled`. Quick manual check:
 
@@ -84,9 +97,10 @@ printf '%s\n%s\n%s\n' \
 ```go
 import "github.com/asyncawakestudio/surface/asm"
 
-scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect"})
+scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceDetection: true})
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
+// res.Services(): every identified service with its IP, hosts and port
 ```
 
 The engine's own defaults differ from the CLI: `PortScanType` defaults to

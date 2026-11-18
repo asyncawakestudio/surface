@@ -78,6 +78,9 @@ func flatten(r *asm.Result) []record {
 	for _, ps := range r.PortScans {
 		for _, p := range ps.Ports {
 			rows = append(rows, record{Type: "port", IP: ps.IP, Port: p.Port, Field: p.Protocol, Value: "open"})
+			if p.Service != nil {
+				rows = append(rows, record{Type: "service", IP: ps.IP, Port: p.Port, Field: p.Service.Name, Value: serviceDetails(*p.Service)})
+			}
 		}
 	}
 	for _, c := range r.TLSCerts {
@@ -163,6 +166,9 @@ func renderText(w io.Writer, r *asm.Result) error {
 			ports := make([]string, len(ps.Ports))
 			for j, pt := range ps.Ports {
 				ports[j] = fmt.Sprintf("%d/%s", pt.Port, pt.Protocol)
+				if pt.Service != nil {
+					ports[j] += " (" + serviceSummary(*pt.Service) + ")"
+				}
 			}
 			p("  %-18s %s\n", ps.IP, strings.Join(ports, ", "))
 		}
@@ -174,6 +180,40 @@ func renderText(w io.Writer, r *asm.Result) error {
 	}
 	p("\n")
 	return nil
+}
+
+// serviceSummary is a short label for the txt report, e.g. "ssh OpenSSH 8.9p1".
+func serviceSummary(s asm.Service) string {
+	parts := []string{s.Name}
+	if s.TLS {
+		parts[0] += "/tls"
+	}
+	if s.Product != "" {
+		parts = append(parts, s.Product)
+	}
+	if s.Version != "" {
+		parts = append(parts, s.Version)
+	}
+	return strings.Join(parts, " ")
+}
+
+// serviceDetails is the value of a csv/xml service row, e.g.
+// "product=OpenSSH; version=8.9p1; cpe=cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*".
+func serviceDetails(s asm.Service) string {
+	var parts []string
+	add := func(k, v string) {
+		if v != "" {
+			parts = append(parts, k+"="+v)
+		}
+	}
+	add("product", s.Product)
+	add("version", s.Version)
+	add("info", s.ExtraInfo)
+	if s.TLS {
+		parts = append(parts, "tls")
+	}
+	add("cpe", strings.Join(s.CPEs, "|"))
+	return strings.Join(parts, "; ")
 }
 
 func flagSuffix(c asm.TLSCert) string {
