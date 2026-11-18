@@ -33,8 +33,11 @@ const (
 	StageDNS        Stage = "dns"
 	StageIPDR       Stage = "ipdr"
 	StagePorts      Stage = "ports"
-	StageVulns      Stage = "vulns"
-	StageCerts      Stage = "certs"
+	// StageServices is service detection, part of the ports stage. It is
+	// recorded in Result.Stages but not reported to a ProgressFunc.
+	StageServices Stage = "services"
+	StageVulns    Stage = "vulns"
+	StageCerts    Stage = "certs"
 )
 
 // ProgressFunc is called when the scan enters a new stage.
@@ -89,7 +92,11 @@ type TLSCert struct {
 
 // Result is everything discovered for a domain.
 type Result struct {
-	Domain     string      `json:"domain"`
+	Domain string `json:"domain"`
+	// Stages lists the stages that ran, so an empty result (no open ports, no
+	// CVEs) can be told apart from one that was never looked for. Results
+	// saved before this field existed don't have it.
+	Stages     []Stage     `json:"stages,omitempty"`
 	Subdomains []Subdomain `json:"subdomains"`
 	DNSRecords []DNSRecord `json:"dns_records"`
 	TLSCerts   []TLSCert   `json:"tls_certs"`
@@ -289,6 +296,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	res := &Result{Domain: domain}
 
 	progress(StageSubdomains)
+	res.Stages = append(res.Stages, StageSubdomains)
 	found, err := s.enumerateSubdomains(ctx, domain)
 	if err != nil {
 		return nil, fmt.Errorf("subdomain enumeration: %w", err)
@@ -301,6 +309,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 
 	progress(StageDNS)
+	res.Stages = append(res.Stages, StageDNS)
 	records, resolved, err := s.resolve(ctx, domain, hosts)
 	if err != nil {
 		return nil, fmt.Errorf("dns resolution: %w", err)
@@ -309,6 +318,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 
 	if !s.opts.SkipIPDR {
 		progress(StageIPDR)
+		res.Stages = append(res.Stages, StageIPDR)
 		res.IPInfo, err = s.lookupIPs(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("ip lookup: %w", err)
@@ -317,6 +327,10 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 
 	if s.opts.PortScan {
 		progress(StagePorts)
+		res.Stages = append(res.Stages, StagePorts)
+		if s.opts.ServiceDetection {
+			res.Stages = append(res.Stages, StageServices)
+		}
 		res.PortScans, err = s.scanPorts(ctx, resolved, probesFile)
 		if err != nil {
 			return nil, fmt.Errorf("port scanning: %w", err)
@@ -325,6 +339,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 
 	if s.opts.VulnLookup {
 		progress(StageVulns)
+		res.Stages = append(res.Stages, StageVulns)
 		res.Vulnerabilities, err = s.lookupVulns(ctx, res.Services())
 		if err != nil {
 			return nil, fmt.Errorf("vulnerability lookup: %w", err)
@@ -336,6 +351,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 
 	if !s.opts.SkipCerts {
 		progress(StageCerts)
+		res.Stages = append(res.Stages, StageCerts)
 		res.TLSCerts, err = s.grabCerts(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("tls probing: %w", err)

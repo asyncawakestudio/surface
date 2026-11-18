@@ -12,6 +12,8 @@ type Diff struct {
 	DNSRecords SetDiff[DNSRecord] `json:"dns_records"`
 	TLSCerts   CertDiff           `json:"tls_certs"`
 	IPInfo     IPInfoDiff         `json:"ip_info"`
+	Ports      PortDiff           `json:"ports"`
+	Vulns      VulnDiff           `json:"vulnerabilities"`
 }
 
 // SetDiff lists items present in only one of two scans.
@@ -46,13 +48,16 @@ func (d Diff) Empty() bool {
 	return len(d.Subdomains.Added)+len(d.Subdomains.Removed)+len(d.Subdomains.NoLongerReported)+
 		len(d.DNSRecords.Added)+len(d.DNSRecords.Removed)+
 		len(d.TLSCerts.Added)+len(d.TLSCerts.Removed)+len(d.TLSCerts.Changed)+
-		len(d.IPInfo.Added)+len(d.IPInfo.Removed)+len(d.IPInfo.Changed) == 0
+		len(d.IPInfo.Added)+len(d.IPInfo.Removed)+len(d.IPInfo.Changed)+
+		len(d.Ports.Added)+len(d.Ports.Removed)+len(d.Ports.ServiceChanged)+
+		len(d.Vulns.Added)+len(d.Vulns.Removed) == 0
 }
 
 // Compare returns the changes from prev to cur. Subdomains are compared by
 // host, DNS records by (host, type, value), certificates by endpoint (a
-// changed fingerprint counts as a replaced certificate) and ipinfo data by
-// IP, field by field.
+// changed fingerprint counts as a replaced certificate), ipinfo data by
+// IP, field by field, open ports by (IP, port, protocol) and CVEs by port and
+// ID. Ports and CVEs are only compared when both scans looked for them.
 func Compare(prev, cur *Result) Diff {
 	d := Diff{
 		Subdomains: SubdomainDiff{
@@ -94,6 +99,8 @@ func Compare(prev, cur *Result) Diff {
 	})
 
 	d.IPInfo = compareIPInfo(prev, cur)
+	d.Ports = comparePorts(prev, cur)
+	d.Vulns = compareVulnerabilities(prev, cur)
 	return d
 }
 

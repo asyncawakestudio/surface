@@ -139,7 +139,9 @@ res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
 `"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
-changed between scans).
+changed between scans): subdomains, DNS records, IP data, certificates, open ports,
+service versions and CVEs. Ports and CVEs are only compared when both scans looked for
+them (`Result.Stages`).
 
 ## Building
 
