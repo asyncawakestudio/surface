@@ -9,6 +9,7 @@ require (
 	github.com/projectdiscovery/goflags v0.2.1
 	github.com/projectdiscovery/httpx v1.12.0
 	github.com/projectdiscovery/naabu/v2 v2.7.0
+	github.com/projectdiscovery/retryabledns v1.0.116
 	github.com/projectdiscovery/subfinder/v2 v2.17.0
 	github.com/projectdiscovery/tlsx v1.4.4
 	github.com/projectdiscovery/utils v0.11.10
@@ -114,7 +115,6 @@ require (
 	github.com/projectdiscovery/networkpolicy v0.1.55 // indirect
 	github.com/projectdiscovery/ratelimit v0.0.94 // indirect
 	github.com/projectdiscovery/rawhttp v0.1.92 // indirect
-	github.com/projectdiscovery/retryabledns v1.0.116 // indirect
 	github.com/projectdiscovery/retryablehttp-go v1.3.31 // indirect
 	github.com/projectdiscovery/uncover v1.2.1 // indirect
 	github.com/projectdiscovery/useragent v0.0.109 // indirect

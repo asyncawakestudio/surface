@@ -65,6 +65,9 @@ Output:
   --skip <stages>       comma-separated stages to skip: ipdr, misconfig, web,
                         certs
                         (subdomains and dns are always run)
+  --subdomain-brute-force
+                        after subfinder, also try each label of a wordlist
+                        as <label>.<domain> (one DNS query per label)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
@@ -79,6 +82,8 @@ Tuning (all optional):
   --ipinfo-token <tok>      ipinfo.io API token
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
+  --subdomain-wordlist <f>  wordlist for --subdomain-brute-force, one label per
+                            line (default: built-in SecLists top 5,000)
   --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
   --max-time <dur>          subfinder enumeration cap, e.g. 90s or 10m
   --port-type <t>           connect | syn (default connect; syn needs root
@@ -105,6 +110,8 @@ func runScan(args []string) int {
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
+		brute     = fs.Bool("subdomain-brute-force", false, "brute-force subdomains from a wordlist after subfinder")
+		wordlist  = fs.String("subdomain-wordlist", "", "wordlist for --subdomain-brute-force (default: built-in top 5,000)")
 		resolvers = fs.String("resolvers", "", "comma-separated DNS resolvers")
 		maxTime   = fs.String("max-time", "", "subfinder enumeration cap, e.g. 10m")
 		portType  = fs.String("port-type", "", "port scan mode: connect or syn")
@@ -141,18 +148,20 @@ func runScan(args []string) int {
 	}
 
 	p := scan.Params{
-		Domain:        rest[0],
-		Ports:         *ports,
-		PortType:      *portType,
-		PortSpec:      *portSpec,
-		PortRate:      *portRate,
-		Services:      *services,
-		ServiceProbes: *probes,
-		Vulns:         *vulns,
-		NVDAPIKey:     *nvdKey,
-		PDCPAPIKey:    *pdcpKey,
-		IPInfoToken:   *ipToken,
-		SubfinderCfg:  *sfConfig,
+		Domain:              rest[0],
+		Ports:               *ports,
+		PortType:            *portType,
+		PortSpec:            *portSpec,
+		PortRate:            *portRate,
+		Services:            *services,
+		ServiceProbes:       *probes,
+		Vulns:               *vulns,
+		NVDAPIKey:           *nvdKey,
+		PDCPAPIKey:          *pdcpKey,
+		IPInfoToken:         *ipToken,
+		SubfinderCfg:        *sfConfig,
+		SubdomainBruteforce: *brute,
+		SubdomainWordlist:   *wordlist,
 	}
 	if *skip != "" {
 		if err := p.ApplySkips(splitComma(*skip)); err != nil {

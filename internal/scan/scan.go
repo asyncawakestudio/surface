@@ -21,24 +21,26 @@ import (
 // turn stages off. Zero values elsewhere mean "default", except Domain which
 // is required.
 type Params struct {
-	Domain        string
-	SkipIPDR      bool
-	SkipCerts     bool
-	SkipWeb       bool
-	SkipMisconfig bool
-	Ports         bool   // run the port scan
-	PortType      string // "connect" (default) or "syn"
-	PortSpec      string // naabu port spec, e.g. "-", "1-1000", "80,443"
-	PortRate      int
-	Services      bool   // identify the service on each open port (needs Ports)
-	ServiceProbes string // nmap-service-probes path; empty = local nmap's copy
-	Vulns         bool   // look up CVEs for detected services and web technologies
-	NVDAPIKey     string // optional; raises NVD's rate limit
-	PDCPAPIKey    string // optional; ProjectDiscovery Cloud key for vulnx
-	Resolvers     []string
-	IPInfoToken   string
-	SubfinderCfg  string
-	MaxTime       time.Duration
+	Domain              string
+	SkipIPDR            bool
+	SkipCerts           bool
+	SkipWeb             bool
+	SkipMisconfig       bool
+	SubdomainBruteforce bool   // brute-force subdomains after subfinder
+	SubdomainWordlist   string // wordlist for SubdomainBruteforce; empty = the built-in top 5,000
+	Ports               bool   // run the port scan
+	PortType            string // "connect" (default) or "syn"
+	PortSpec            string // naabu port spec, e.g. "-", "1-1000", "80,443"
+	PortRate            int
+	Services            bool   // identify the service on each open port (needs Ports)
+	ServiceProbes       string // nmap-service-probes path; empty = local nmap's copy
+	Vulns               bool   // look up CVEs for detected services and web technologies
+	NVDAPIKey           string // optional; raises NVD's rate limit
+	PDCPAPIKey          string // optional; ProjectDiscovery Cloud key for vulnx
+	Resolvers           []string
+	IPInfoToken         string
+	SubfinderCfg        string
+	MaxTime             time.Duration
 }
 
 // Options converts Params into asm.Options. logs, if non-nil, receives engine
@@ -56,6 +58,8 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 	return asm.Options{
 		SubfinderProviderConfig: p.SubfinderCfg,
 		SubfinderMaxTime:        p.MaxTime,
+		SubdomainBruteforce:     p.SubdomainBruteforce,
+		SubdomainWordlist:       p.SubdomainWordlist,
 		Resolvers:               p.Resolvers,
 		IPInfoToken:             p.IPInfoToken,
 		SkipIPDR:                p.SkipIPDR,
@@ -106,8 +110,16 @@ func (p *Params) ApplySkips(names []string) error {
 // work from.
 var ErrVulnsNeedInput = errors.New("the vulns lookup needs services or the web stage (it is skipped)")
 
-// Validate checks combinations of stages the engine would reject.
+// ErrWordlistNeedsBruteforce is returned by Validate for a subdomain wordlist
+// without brute-forcing.
+var ErrWordlistNeedsBruteforce = errors.New("a subdomain wordlist requires subdomain brute-forcing")
+
+// Validate checks combinations of options that wouldn't do anything or that
+// the engine would reject.
 func (p Params) Validate() error {
+	if p.SubdomainWordlist != "" && !p.SubdomainBruteforce {
+		return ErrWordlistNeedsBruteforce
+	}
 	if p.Vulns && !p.Services && p.SkipWeb {
 		return ErrVulnsNeedInput
 	}

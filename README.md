@@ -38,6 +38,9 @@ Output:
   --skip <stages>       comma-separated stages to skip: ipdr, misconfig, web,
                         certs
                         (subdomains and dns are always run)
+  --subdomain-brute-force
+                        after subfinder, also try each label of a wordlist
+                        as <label>.<domain> (one DNS query per label)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
@@ -52,6 +55,8 @@ Tuning (all optional):
   --ipinfo-token <tok>      ipinfo.io API token
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
+  --subdomain-wordlist <f>  wordlist for --subdomain-brute-force, one label per
+                            line (default: built-in SecLists top 5,000)
   --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
   --max-time <dur>          subfinder enumeration cap, e.g. 90s or 10m
   --port-type <t>           connect | syn (default connect; syn needs root
@@ -69,6 +74,21 @@ Tuning (all optional):
 The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
 and libpcap installed at runtime (`apt install libpcap0.8`, preinstalled on
 macOS). `connect` needs neither.
+
+### Subdomains
+
+Collected from passive sources with
+[subfinder](https://github.com/projectdiscovery/subfinder) (certificate
+transparency, VirusTotal, Chaos...). With `--subdomain-brute-force`, each
+label of a wordlist is then tried as `<label>.<domain>` and kept if it
+resolves; those names have source `bruteforce`.
+
+- **Wordlist:** SecLists' top 5,000 subdomains by default (built in, MIT);
+  pick another with `--subdomain-wordlist <file>`, one label per line.
+- **Wildcard DNS:** random names are resolved first; a guess whose answer
+  matches theirs is dropped, since under a wildcard every name resolves.
+- **Opt-in:** one DNS query per label not already found (about 5,000 by
+  default).
 
 ### Services (`--services`)
 

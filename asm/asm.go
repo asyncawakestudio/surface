@@ -124,6 +124,14 @@ type Options struct {
 	SubfinderProviderConfig string
 	// SubfinderMaxTime caps passive enumeration time.
 	SubfinderMaxTime time.Duration
+	// SubdomainBruteforce makes the subdomains stage, after subfinder, resolve
+	// <label>.<domain> for each label of SubdomainWordlist it hasn't found yet
+	// and keep those that resolve, ignoring wildcard DNS answers. Off by
+	// default: it sends one DNS query per label.
+	SubdomainBruteforce bool
+	// SubdomainWordlist is a file of subdomain labels, one per line, for
+	// SubdomainBruteforce. Defaults to SecLists' top 5,000 subdomains.
+	SubdomainWordlist string
 	// Resolvers overrides the DNS resolvers used by dnsx ("udp:1.1.1.1:53").
 	// When empty, dnsx's public resolvers are used, falling back to the
 	// system resolver if they are unreachable.
@@ -332,6 +340,20 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	found, err := s.enumerateSubdomains(ctx, domain)
 	if err != nil {
 		return nil, fmt.Errorf("subdomain enumeration: %w", err)
+	}
+	if s.opts.SubdomainBruteforce {
+		// After the passive sources, guess names from a wordlist.
+		known := map[string]bool{}
+		for _, sd := range append(slices.Clone(found), target.KnownSubdomains...) {
+			known[sd.Host] = true
+		}
+		brute, err := s.bruteforceSubdomains(ctx, domain, known)
+		if err != nil {
+			return nil, fmt.Errorf("subdomain brute-force: %w", err)
+		}
+		for _, h := range brute {
+			found = append(found, Subdomain{Host: h, Sources: []string{"bruteforce"}})
+		}
 	}
 	res.Subdomains = mergeSubdomains(domain, found, target.KnownSubdomains)
 
