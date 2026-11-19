@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/miekg/dns v1.1.73
+	github.com/projectdiscovery/cdncheck v1.3.2
 	github.com/projectdiscovery/cvemap v1.0.0
 	github.com/projectdiscovery/dnsx v1.3.1
 	github.com/projectdiscovery/goflags v0.2.1
@@ -95,7 +96,6 @@ require (
 	github.com/projectdiscovery/asnmap v1.1.1 // indirect
 	github.com/projectdiscovery/awesome-search-queries v0.0.0-20260104120501-961ef30f7193 // indirect
 	github.com/projectdiscovery/blackrock v0.0.2 // indirect
-	github.com/projectdiscovery/cdncheck v1.3.2 // indirect
 	github.com/projectdiscovery/chaos-client v0.5.2 // indirect
 	github.com/projectdiscovery/clistats v0.1.7 // indirect
 	github.com/projectdiscovery/dsl v0.8.22 // indirect

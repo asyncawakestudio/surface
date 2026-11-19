@@ -16,7 +16,7 @@ import (
 )
 
 // Params are the knobs both front-ends expose. By default subdomains, dns,
-// ipdr, misconfig, web and certs run; the port scan is opt-in (Ports) because it probes every
+// ipdr, cloud, misconfig, web and certs run; the port scan is opt-in (Ports) because it probes every
 // resolved IP, including third-party infrastructure. Set the Skip* fields to
 // turn stages off. Zero values elsewhere mean "default", except Domain which
 // is required.
@@ -26,6 +26,8 @@ type Params struct {
 	SkipCerts           bool
 	SkipWeb             bool
 	SkipMisconfig       bool
+	SkipCloud           bool
+	CloudServices       bool   // guess cloud resources named after the domain
 	CloudStorage        bool   // check for public buckets named after the domain
 	SubdomainBruteforce bool   // brute-force subdomains after subfinder
 	SubdomainWordlist   string // wordlist for SubdomainBruteforce; empty = the built-in top 5,000
@@ -67,6 +69,8 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		SkipCerts:               p.SkipCerts,
 		SkipWeb:                 p.SkipWeb,
 		SkipMisconfig:           p.SkipMisconfig,
+		SkipCloud:               p.SkipCloud,
+		CloudServices:           p.CloudServices,
 		CloudStorage:            p.CloudStorage,
 		PortScan:                p.Ports,
 		PortScanType:            portType,
@@ -84,7 +88,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 // StageNames are the stages a caller may skip. subdomains and dns are
 // foundational (everything depends on them) and cannot be skipped; ports is
 // off unless requested.
-var StageNames = []string{"ipdr", "misconfig", "web", "certs"}
+var StageNames = []string{"ipdr", "cloud", "misconfig", "web", "certs"}
 
 // ApplySkips sets the Skip* fields from stage names, returning an error for an
 // unknown or non-skippable name.
@@ -99,6 +103,8 @@ func (p *Params) ApplySkips(names []string) error {
 			p.SkipWeb = true
 		case "misconfig":
 			p.SkipMisconfig = true
+		case "cloud":
+			p.SkipCloud = true
 		case "ports":
 			return fmt.Errorf("the port scan is off by default; there is no need to skip it")
 		default:
@@ -124,6 +130,9 @@ func (p Params) Validate() error {
 	}
 	if p.CloudStorage && p.SkipMisconfig {
 		return asm.ErrCloudStorageNeedsMisconfig
+	}
+	if p.CloudServices && p.SkipCloud {
+		return asm.ErrCloudServicesNeedsCloud
 	}
 	if p.Vulns && !p.Services && p.SkipWeb {
 		return ErrVulnsNeedInput

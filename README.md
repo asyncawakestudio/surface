@@ -26,23 +26,25 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default these stages run: subdomains, dns, ipdr, misconfig, web, certs.
-The port scan is opt-in (--ports) since it probes every IP the domain resolves
-to, including hosting and CDN infrastructure you may not own.
+By default these stages run: subdomains, dns, ipdr, cloud, misconfig, web,
+certs. The port scan is opt-in (--ports) since it probes every IP the domain
+resolves to, including hosting and CDN infrastructure you may not own.
 
 Output:
   --output <dest>       where/how to write results (default: txt to stdout).
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, misconfig, web,
-                        certs
+  --skip <stages>       comma-separated stages to skip: ipdr, cloud,
+                        misconfig, web, certs
                         (subdomains and dns are always run)
   --subdomain-brute-force
                         after subfinder, also try each label of a wordlist
                         as <label>.<domain> (one DNS query per label)
   --cloud-storage       also look for public AWS S3, Google Cloud and Azure
                         buckets named after the domain (guesses names)
+  --cloud-services      also look for Azure, Google Cloud, Microsoft 365 and
+                        Okta resources named after the domain (guesses names)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
@@ -103,6 +105,29 @@ and CPEs (CPE 2.3, the identifiers vulnerability databases use).
   is missing.
 - **Intrusive:** sends protocol probes to every open port, not just a
   connection attempt.
+
+### Cloud (on by default)
+
+Shows what runs where and who signs users in. No requests go to the target.
+
+- **Hosts on cloud and edge services:** each host's addresses are matched
+  against AWS's published IP ranges (naming the service and region, e.g.
+  `AWS EC2 us-east-1`) and other providers' ranges (Azure, Google Cloud,
+  Cloudflare, Akamai...), and its CNAME against known services
+  (`*.elb.amazonaws.com` → Elastic Load Balancing, `*.azurewebsites.net` →
+  App Service, `*.cloudfront.net`, Heroku, Vercel, Netlify...).
+- **Identity:** the domain's Microsoft Entra ID tenant from Microsoft's
+  public sign-in endpoints: tenant ID and region, whether sign-in is managed
+  or federated (and the federation server, e.g. ADFS), and the other domains
+  verified in the tenant, as far as Microsoft discloses them. Google
+  Workspace is detected from MX records.
+- **`--cloud-services`** (opt-in) guesses resources named after the domain
+  (`example`, `example-dev`, `examplecom`...) and keeps those whose DNS name
+  exists: Azure App Service, Key Vault, SQL Database, Container Registry,
+  Cosmos DB, API Management, Service Bus, Redis, SharePoint, Google App
+  Engine and Firebase, plus Okta orgs. About 300 DNS queries; services with
+  wildcard DNS are skipped. A match may belong to someone else.
+- Turn it off with `--skip cloud`.
 
 ### Misconfigurations (on by default)
 
@@ -213,6 +238,7 @@ scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceD
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
 // res.Services(): every identified service with its IP, hosts and port
+// res.CloudAssets, res.Identity: cloud services behind hosts; Entra ID, Google Workspace, Okta
 // res.Misconfigurations: weak SPF, DMARC, CAA and zone transfer settings, and
 //   subdomains whose CNAME points at an unclaimed resource
 // res.Web: what each host serves over HTTP(S), with detected technologies
@@ -222,9 +248,9 @@ res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
 `"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
 changed between scans): subdomains, DNS records, IP data, certificates, open ports,
-service versions, web pages, misconfigurations (including takeover risks) and CVEs.
-Ports, web pages, misconfigurations and CVEs are only compared when both scans looked
-for them (`Result.Stages`).
+service versions, web pages, misconfigurations (including takeover risks), cloud assets,
+Entra tenant domains and CVEs. Ports, web pages, misconfigurations, cloud results and
+CVEs are only compared when both scans looked for them (`Result.Stages`).
 
 ## Building
 

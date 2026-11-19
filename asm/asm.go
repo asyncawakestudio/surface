@@ -2,7 +2,7 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> misconfig -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> cloud -> misconfig -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
 //
 // ipdr, ports, web and certs work from the hosts the DNS stage resolved. ports
 // is opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
@@ -11,7 +11,9 @@
 // runs (see WebPage), on the open ports or, without a port scan, on
 // Options.WebPorts. With Options.VulnLookup the vulns stage finds the CVEs
 // affecting the detected services' and technologies' versions (see
-// Vulnerability). The misconfig stage checks SPF, DMARC, CAA, zone transfers
+// Vulnerability). The cloud stage labels hosts with the cloud or edge
+// service they run on (see CloudAsset) and finds the domain's identity
+// providers (see IdentityProvider). The misconfig stage checks SPF, DMARC, CAA, zone transfers
 // and subdomain takeovers (see Misconfiguration).
 package asm
 
@@ -36,6 +38,7 @@ const (
 	StageSubdomains Stage = "subdomains"
 	StageDNS        Stage = "dns"
 	StageIPDR       Stage = "ipdr"
+	StageCloud      Stage = "cloud"
 	StageMisconfig  Stage = "misconfig"
 	StagePorts      Stage = "ports"
 	StageWeb        Stage = "web"
@@ -108,6 +111,12 @@ type Result struct {
 	TLSCerts   []TLSCert   `json:"tls_certs"`
 	IPInfo     []IPInfo    `json:"ip_info"`
 	PortScans  []PortScan  `json:"port_scans"`
+	// CloudAssets lists hosts on cloud and edge services and, with
+	// Options.CloudServices, cloud resources named after the domain.
+	CloudAssets []CloudAsset `json:"cloud_assets,omitempty"`
+	// Identity lists the identity providers the domain uses (Entra ID,
+	// Google Workspace, Okta).
+	Identity []IdentityProvider `json:"identity,omitempty"`
 	// Misconfigurations lists weak DNS and email security settings and
 	// subdomains at risk of takeover.
 	Misconfigurations []Misconfiguration `json:"misconfigurations,omitempty"`
@@ -161,6 +170,14 @@ type Options struct {
 	SkipIPDR bool
 	// SkipCerts disables the certificate stage (TLS inspection via tlsx).
 	SkipCerts bool
+	// SkipCloud disables the cloud stage (cloud services and identity
+	// providers).
+	SkipCloud bool
+	// CloudServices makes the cloud stage also guess cloud resources named
+	// after the domain (Azure App Service, Key Vault, SQL, Google App
+	// Engine, Firebase, SharePoint, Okta...) and keep those whose DNS name
+	// exists. Off by default: it sends a few hundred DNS queries.
+	CloudServices bool
 	// SkipMisconfig disables the DNS, email and subdomain takeover checks.
 	SkipMisconfig bool
 	// CloudStorage adds a check to the misconfig stage for AWS S3, Google
@@ -322,6 +339,9 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 	// Check service detection up front rather than after minutes of
 	// enumeration: naabu itself only warns and skips it without probes.
+	if s.opts.CloudServices && s.opts.SkipCloud {
+		return nil, ErrCloudServicesNeedsCloud
+	}
 	if s.opts.CloudStorage && s.opts.SkipMisconfig {
 		return nil, ErrCloudStorageNeedsMisconfig
 	}
@@ -385,6 +405,15 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		res.IPInfo, err = s.lookupIPs(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("ip lookup: %w", err)
+		}
+	}
+
+	if !s.opts.SkipCloud {
+		progress(StageCloud)
+		res.Stages = append(res.Stages, StageCloud)
+		res.CloudAssets, res.Identity, err = s.discoverCloud(ctx, domain, res.DNSRecords, resolved)
+		if err != nil {
+			return nil, fmt.Errorf("cloud discovery: %w", err)
 		}
 	}
 

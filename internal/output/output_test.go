@@ -262,3 +262,48 @@ func TestRenderMisconfigs(t *testing.T) {
 		t.Errorf("txt:\n%s", b.String())
 	}
 }
+
+func TestRenderCloud(t *testing.T) {
+	r := sample()
+	r.CloudAssets = []asm.CloudAsset{
+		{Host: "api.example.com", IPs: []string{"203.0.113.5"}, Provider: "AWS", Service: "EC2", Region: "us-east-1", Evidence: "ip-range"},
+		{Host: "example-dev.azurewebsites.net", Provider: "Azure", Service: "App Service", Evidence: "guess"},
+		{Host: "shop.example.com", Provider: "Heroku", Evidence: "cname"},
+	}
+	r.Identity = []asm.IdentityProvider{
+		{Domain: "example.com", Provider: "Microsoft Entra ID", TenantID: "0e7f1b6a-1234-4c5d-8e9f-0123456789ab", TenantRegion: "EU",
+			Authentication: "federated", AuthURL: "https://adfs.example.com/adfs/ls/", Evidence: "openid",
+			Domains: []string{"a.example", "b.example", "c.example", "d.example", "e.example", "f.example", "g.example", "h.example", "i.example", "j.example", "k.example"}},
+		{Domain: "example.com", Provider: "Google Workspace", Evidence: "mx"},
+	}
+	var b strings.Builder
+	if err := Render(&b, r, "txt"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Cloud (3)\n",
+		"  api.example.com                AWS EC2 us-east-1  [ip-range]\n",
+		"  example-dev.azurewebsites.net  Azure App Service  [guess]\n",
+		"  shop.example.com               Heroku  [cname]\n",
+		"Identity (2)\n",
+		"  Microsoft Entra ID  tenant 0e7f1b6a-1234-4c5d-8e9f-0123456789ab (EU), federated: https://adfs.example.com/adfs/ls/, [openid]\n",
+		"    tenant domains (11): a.example, b.example, c.example, d.example, e.example, f.example, g.example, h.example, i.example, j.example +1 more\n",
+		"  Google Workspace  [mx]\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("txt missing %q in:\n%s", want, b.String())
+		}
+	}
+	b.Reset()
+	if err := Render(&b, r, "csv"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"cloud,api.example.com,203.0.113.5,,AWS EC2,evidence=ip-range; region=us-east-1; ips=203.0.113.5",
+		"identity,example.com,,,Microsoft Entra ID,tenant=0e7f1b6a-1234-4c5d-8e9f-0123456789ab; region=EU; auth=federated;",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("csv missing %q in:\n%s", want, b.String())
+		}
+	}
+}

@@ -84,6 +84,16 @@ func flatten(r *asm.Result) []record {
 			}
 		}
 	}
+	for _, a := range r.CloudAssets {
+		ip := ""
+		if len(a.IPs) > 0 {
+			ip = a.IPs[0]
+		}
+		rows = append(rows, record{Type: "cloud", Host: a.Host, IP: ip, Field: cloudLabel(a), Value: cloudDetails(a)})
+	}
+	for _, idp := range r.Identity {
+		rows = append(rows, record{Type: "identity", Host: idp.Domain, Field: idp.Provider, Value: identityDetails(idp)})
+	}
 	for _, m := range r.Misconfigurations {
 		rows = append(rows, record{Type: "misconfig", Host: m.Host, Port: m.Port, Field: m.Check, Value: m.Severity + ": " + m.Detail})
 	}
@@ -172,6 +182,31 @@ func renderText(w io.Writer, r *asm.Result) error {
 		p("  %-18s %s\n", i.IP, summarizeIPInfo(i.Data))
 	}
 
+	if len(r.CloudAssets) > 0 {
+		width := 0
+		for _, a := range r.CloudAssets {
+			width = max(width, len(a.Host))
+		}
+		p("\nCloud (%d)\n", len(r.CloudAssets))
+		for _, a := range r.CloudAssets {
+			label := cloudLabel(a)
+			if a.Region != "" {
+				label += " " + a.Region
+			}
+			p("  %-*s  %s  [%s]\n", width, a.Host, label, a.Evidence)
+		}
+	}
+
+	if len(r.Identity) > 0 {
+		p("\nIdentity (%d)\n", len(r.Identity))
+		for _, idp := range r.Identity {
+			p("  %s  %s\n", idp.Provider, identitySummary(idp))
+			if len(idp.Domains) > 0 {
+				p("    tenant domains (%d): %s\n", len(idp.Domains), truncateList(idp.Domains, 10))
+			}
+		}
+	}
+
 	if len(r.Misconfigurations) > 0 || slices.Contains(r.Stages, asm.StageMisconfig) {
 		p("\nMisconfigurations (%d)\n", len(r.Misconfigurations))
 		for _, m := range r.Misconfigurations {
@@ -258,6 +293,74 @@ func serviceDetails(s asm.Service) string {
 	}
 	add("cpe", strings.Join(s.CPEs, "|"))
 	return strings.Join(parts, "; ")
+}
+
+// cloudLabel is "AWS EC2", or just "Heroku" when the service isn't known.
+func cloudLabel(a asm.CloudAsset) string {
+	return strings.TrimSpace(a.Provider + " " + a.Service)
+}
+
+// cloudDetails is the value of a csv/xml cloud row.
+func cloudDetails(a asm.CloudAsset) string {
+	parts := []string{"evidence=" + a.Evidence}
+	if a.Region != "" {
+		parts = append(parts, "region="+a.Region)
+	}
+	if len(a.IPs) > 0 {
+		parts = append(parts, "ips="+strings.Join(a.IPs, "|"))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// identitySummary is an identity provider's line in the txt report, e.g.
+// "tenant 0e7f... (EU), federated: https://adfs.example.com/adfs/ls/".
+func identitySummary(idp asm.IdentityProvider) string {
+	var parts []string
+	if idp.TenantID != "" {
+		t := "tenant " + idp.TenantID
+		if idp.TenantRegion != "" {
+			t += " (" + idp.TenantRegion + ")"
+		}
+		parts = append(parts, t)
+	}
+	switch {
+	case idp.Authentication == "federated" && idp.AuthURL != "":
+		parts = append(parts, "federated: "+idp.AuthURL)
+	case idp.Authentication != "":
+		parts = append(parts, idp.Authentication)
+	}
+	if idp.URL != "" {
+		parts = append(parts, idp.URL)
+	}
+	parts = append(parts, "["+idp.Evidence+"]")
+	return strings.Join(parts, ", ")
+}
+
+// identityDetails is the value of a csv/xml identity row.
+func identityDetails(idp asm.IdentityProvider) string {
+	var parts []string
+	add := func(k, v string) {
+		if v != "" {
+			parts = append(parts, k+"="+v)
+		}
+	}
+	add("tenant", idp.TenantID)
+	add("region", idp.TenantRegion)
+	add("auth", idp.Authentication)
+	add("auth_url", idp.AuthURL)
+	add("brand", idp.BrandName)
+	add("url", idp.URL)
+	add("domains", strings.Join(idp.Domains, "|"))
+	add("evidence", idp.Evidence)
+	return strings.Join(parts, "; ")
+}
+
+// truncateList joins up to n items, noting how many more there are.
+func truncateList(items []string, n int) string {
+	if len(items) <= n {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s +%d more", strings.Join(items[:n], ", "), len(items)-n)
 }
 
 // webSummary is a page's line in the txt report, e.g.

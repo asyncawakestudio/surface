@@ -15,6 +15,7 @@ type Diff struct {
 	Ports      PortDiff           `json:"ports"`
 	Web        WebDiff            `json:"web"`
 	Misconfigs MisconfigDiff      `json:"misconfigurations"`
+	Cloud      CloudDiff          `json:"cloud"`
 	Vulns      VulnDiff           `json:"vulnerabilities"`
 }
 
@@ -54,6 +55,8 @@ func (d Diff) Empty() bool {
 		len(d.Ports.Added)+len(d.Ports.Removed)+len(d.Ports.ServiceChanged)+
 		len(d.Web.Added)+len(d.Web.Removed)+len(d.Web.Changed)+
 		len(d.Misconfigs.Added)+len(d.Misconfigs.Removed)+
+		len(d.Cloud.Assets.Added)+len(d.Cloud.Assets.Removed)+
+		len(d.Cloud.TenantDomains.Added)+len(d.Cloud.TenantDomains.Removed)+
 		len(d.Vulns.Added)+len(d.Vulns.Removed) == 0
 }
 
@@ -61,8 +64,9 @@ func (d Diff) Empty() bool {
 // host, DNS records by (host, type, value), certificates by endpoint (a
 // changed fingerprint counts as a replaced certificate), ipinfo data by
 // IP, field by field, open ports by (IP, port, protocol), web pages by URL,
-// misconfigurations (including takeover risks) by host, check and detail, and
-// CVEs by port and ID. Ports, web pages, misconfigurations and CVEs are only
+// misconfigurations (including takeover risks) by host, check and detail,
+// cloud assets by host and service, Entra tenant domains, and CVEs by port and
+// ID. Ports, web pages, misconfigurations, cloud results and CVEs are only
 // compared when both scans looked for them.
 func Compare(prev, cur *Result) Diff {
 	d := Diff{
@@ -108,6 +112,7 @@ func Compare(prev, cur *Result) Diff {
 	d.Ports = comparePorts(prev, cur)
 	d.Web = compareWeb(prev, cur)
 	d.Misconfigs = compareMisconfigs(prev, cur)
+	d.Cloud = compareCloud(prev, cur)
 	d.Vulns = compareVulnerabilities(prev, cur)
 	return d
 }

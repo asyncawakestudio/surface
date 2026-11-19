@@ -65,6 +65,8 @@ func (r *Result) ran(stage Stage) bool {
 		return len(r.PortScans) > 0
 	case StageServices:
 		return len(r.Services()) > 0
+	case StageCloud:
+		return len(r.CloudAssets) > 0 || len(r.Identity) > 0
 	case StageMisconfig:
 		return len(r.Misconfigurations) > 0
 	case StageWeb:
