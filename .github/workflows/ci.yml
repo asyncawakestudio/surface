@@ -38,6 +38,15 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
 
+      # `go install ...@version` refuses modules whose go.mod has replace
+      # directives, so a replace would break installing a release.
+      - name: Check go.mod has no replace directives
+        run: |
+          if grep -nE '^[[:space:]]*replace([[:space:]]|\()' go.mod; then
+            echo "go.mod must not contain replace directives: go install ...@version would fail"
+            exit 1
+          fi
+
       - name: Vet
         run: go vet ./...
 

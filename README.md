@@ -9,7 +9,7 @@ How exposed are you?
 
 Download `surface` and `surface-mcp` for your platform from
 [Releases](https://github.com/asyncawakestudio/surface/releases), or build
-from source (Go 1.26+):
+from source (Go 1.27.3+; older Go versions download it automatically):
 
 ```sh
 go install github.com/asyncawakestudio/surface/cmd/surface@latest
