@@ -29,8 +29,8 @@ const wildcardProbes = 3
 
 // bruteforceSubdomains resolves <word>.<domain> for each word in the
 // wordlist (SubdomainWordlist, or the embedded SecLists top 5000) and returns
-// the names that exist, skipping those already in known. It runs after
-// subfinder, as part of the subdomains stage.
+// the names that exist, skipping those already in known. With
+// SubdomainBruteforce it runs after subfinder, as part of the subdomains stage.
 //
 // When the domain has wildcard DNS every guess resolves, so a name only counts
 // if its answer differs from what random names get.
