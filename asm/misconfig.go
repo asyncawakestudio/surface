@@ -24,7 +24,7 @@ type Misconfiguration struct {
 	Port int `json:"port,omitempty"`
 	// Check is "spf", "dmarc", "caa", "zone_transfer", "takeover",
 	// "tls_version", "tls_cipher", "cert_expired", "cert_expiring",
-	// "cert_self_signed" or "cert_mismatch".
+	// "cert_self_signed", "cert_mismatch" or "public_bucket".
 	Check string `json:"check"`
 	// Severity is "high", "medium" or "low".
 	Severity string `json:"severity"`
@@ -33,8 +33,9 @@ type Misconfiguration struct {
 
 	// CNAME is the target a "takeover" finding's subdomain points at.
 	CNAME string `json:"cname,omitempty"`
-	// Service is the provider a "takeover" CNAME belongs to, e.g. "AWS/S3";
-	// empty when the target matches no known service.
+	// Service is the provider a "takeover" CNAME belongs to, e.g. "AWS/S3"
+	// (empty when the target matches no known service), or the storage
+	// service of a "public_bucket", e.g. "AWS S3".
 	Service string `json:"service,omitempty"`
 	// Reference links to a discussion of taking over the service.
 	Reference string `json:"reference,omitempty"`
@@ -135,6 +136,17 @@ func (s *Scanner) checkMisconfigs(ctx context.Context, domain string, records []
 	}
 	for _, r := range risks {
 		out = append(out, r.misconfig())
+	}
+
+	// Public cloud storage named after the domain
+	if s.opts.CloudStorage {
+		buckets, err := s.findPublicBuckets(ctx, domain)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range buckets {
+			out = append(out, b.misconfig(domain))
+		}
 	}
 
 	if err := ctx.Err(); err != nil {

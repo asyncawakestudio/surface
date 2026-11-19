@@ -170,7 +170,7 @@ func (s *server) cancel(params json.RawMessage) {
 
 var tools = []map[string]any{{
 	"name":        "scan",
-	"description": "Run attack-surface discovery against a domain: subdomain enumeration (passive sources via subfinder; with `subdomain_brute_force`, also a DNS brute-force of a wordlist, ignoring wildcard DNS), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io), misconfiguration checks (SPF, DMARC, CAA, zone transfers, subdomain takeovers via CNAMEs pointing at unclaimed third-party resources, and weak TLS: old protocols or ciphers, expired, expiring, self-signed or mismatched certificates), HTTP probing of each host (httpx: status, title, technologies, CDN/WAF) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. With `services` (requires `ports`), each open port is actively probed to identify its service (product, version, CPEs); this needs nmap installed on the server, or `service_probes`. With `vulns`, the CVEs affecting each detected service's and web technology's version are looked up (NVD) with exploitation data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs); the server reads optional API keys from NVD_API_KEY and PDCP_API_KEY. Port scanning is not available in Windows ARM64 builds. Use `skip` to turn stages off. Returns the full result as JSON.",
+	"description": "Run attack-surface discovery against a domain: subdomain enumeration (passive sources via subfinder; with `subdomain_brute_force`, also a DNS brute-force of a wordlist, ignoring wildcard DNS), DNS resolution (dnsx), IP ownership/geo lookup (ipinfo.io), misconfiguration checks (with `cloud_storage`, also public AWS S3, Google Cloud and Azure buckets named after the domain; SPF, DMARC, CAA, zone transfers, subdomain takeovers via CNAMEs pointing at unclaimed third-party resources, and weak TLS: old protocols or ciphers, expired, expiring, self-signed or mismatched certificates), HTTP probing of each host (httpx: status, title, technologies, CDN/WAF) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. With `services` (requires `ports`), each open port is actively probed to identify its service (product, version, CPEs); this needs nmap installed on the server, or `service_probes`. With `vulns`, the CVEs affecting each detected service's and web technology's version are looked up (NVD) with exploitation data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs); the server reads optional API keys from NVD_API_KEY and PDCP_API_KEY. Port scanning is not available in Windows ARM64 builds. Use `skip` to turn stages off. Returns the full result as JSON.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -187,6 +187,7 @@ var tools = []map[string]any{{
 			"ipinfo_token":          map[string]any{"type": "string", "description": "ipinfo.io API token (optional)"},
 			"subfinder_config":      map[string]any{"type": "string", "description": "Path to subfinder provider-config.yaml for API-key sources"},
 			"subdomain_brute_force": map[string]any{"type": "boolean", "description": "After subfinder, also try each label of a wordlist as <label>.<domain>; one DNS query per label (default false)"},
+			"cloud_storage":         map[string]any{"type": "boolean", "description": "Also look for AWS S3, Google Cloud Storage and Azure Blob containers named after the domain that anyone can list; guesses names, a few hundred requests (default false)"},
 			"subdomain_wordlist":    map[string]any{"type": "string", "description": "Path on the server to a file of subdomain labels, one per line, for subdomain_brute_force (default: built-in SecLists top 5,000)"},
 		},
 		"required": []string{"domain"},
@@ -207,6 +208,7 @@ type scanArgs struct {
 	IPInfoToken         string   `json:"ipinfo_token"`
 	SubfinderConfig     string   `json:"subfinder_config"`
 	SubdomainBruteforce bool     `json:"subdomain_brute_force"`
+	CloudStorage        bool     `json:"cloud_storage"`
 	SubdomainWordlist   string   `json:"subdomain_wordlist"`
 }
 
@@ -259,6 +261,7 @@ func (s *server) handleToolCall(ctx context.Context, req *request) {
 		Resolvers:           a.Resolvers,
 		IPInfoToken:         a.IPInfoToken,
 		SubfinderCfg:        a.SubfinderConfig,
+		CloudStorage:        a.CloudStorage,
 		SubdomainBruteforce: a.SubdomainBruteforce,
 		SubdomainWordlist:   a.SubdomainWordlist,
 	}
