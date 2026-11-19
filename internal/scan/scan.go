@@ -21,24 +21,25 @@ import (
 // turn stages off. Zero values elsewhere mean "default", except Domain which
 // is required.
 type Params struct {
-	Domain        string
-	SkipIPDR      bool
-	SkipCerts     bool
-	SkipWeb       bool
-	SkipMisconfig bool
-	Ports         bool   // run the port scan
-	PortType      string // "connect" (default) or "syn"
-	PortSpec      string // naabu port spec, e.g. "-", "1-1000", "80,443"
-	PortRate      int
-	Services      bool   // identify the service on each open port (needs Ports)
-	ServiceProbes string // nmap-service-probes path; empty = local nmap's copy
-	Vulns         bool   // look up CVEs for detected services and web technologies
-	NVDAPIKey     string // optional; raises NVD's rate limit
-	PDCPAPIKey    string // optional; ProjectDiscovery Cloud key for vulnx
-	Resolvers     []string
-	IPInfoToken   string
-	SubfinderCfg  string
-	MaxTime       time.Duration
+	Domain            string
+	SkipIPDR          bool
+	SkipCerts         bool
+	SkipWeb           bool
+	SkipMisconfig     bool
+	SubdomainWordlist string // brute-forced after subfinder; empty = the built-in top 5,000
+	Ports             bool   // run the port scan
+	PortType          string // "connect" (default) or "syn"
+	PortSpec          string // naabu port spec, e.g. "-", "1-1000", "80,443"
+	PortRate          int
+	Services          bool   // identify the service on each open port (needs Ports)
+	ServiceProbes     string // nmap-service-probes path; empty = local nmap's copy
+	Vulns             bool   // look up CVEs for detected services and web technologies
+	NVDAPIKey         string // optional; raises NVD's rate limit
+	PDCPAPIKey        string // optional; ProjectDiscovery Cloud key for vulnx
+	Resolvers         []string
+	IPInfoToken       string
+	SubfinderCfg      string
+	MaxTime           time.Duration
 }
 
 // Options converts Params into asm.Options. logs, if non-nil, receives engine
@@ -56,6 +57,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 	return asm.Options{
 		SubfinderProviderConfig: p.SubfinderCfg,
 		SubfinderMaxTime:        p.MaxTime,
+		SubdomainWordlist:       p.SubdomainWordlist,
 		Resolvers:               p.Resolvers,
 		IPInfoToken:             p.IPInfoToken,
 		SkipIPDR:                p.SkipIPDR,

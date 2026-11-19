@@ -79,6 +79,8 @@ Tuning (all optional):
   --ipinfo-token <tok>      ipinfo.io API token
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
+  --subdomain-wordlist <f>  subdomain labels to try after subfinder, one per
+                            line (default: built-in SecLists top 5,000)
   --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
   --max-time <dur>          subfinder enumeration cap, e.g. 90s or 10m
   --port-type <t>           connect | syn (default connect; syn needs root
@@ -105,6 +107,7 @@ func runScan(args []string) int {
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
+		wordlist  = fs.String("subdomain-wordlist", "", "subdomain labels to try after subfinder (default: built-in top 5,000)")
 		resolvers = fs.String("resolvers", "", "comma-separated DNS resolvers")
 		maxTime   = fs.String("max-time", "", "subfinder enumeration cap, e.g. 10m")
 		portType  = fs.String("port-type", "", "port scan mode: connect or syn")
@@ -141,18 +144,19 @@ func runScan(args []string) int {
 	}
 
 	p := scan.Params{
-		Domain:        rest[0],
-		Ports:         *ports,
-		PortType:      *portType,
-		PortSpec:      *portSpec,
-		PortRate:      *portRate,
-		Services:      *services,
-		ServiceProbes: *probes,
-		Vulns:         *vulns,
-		NVDAPIKey:     *nvdKey,
-		PDCPAPIKey:    *pdcpKey,
-		IPInfoToken:   *ipToken,
-		SubfinderCfg:  *sfConfig,
+		Domain:            rest[0],
+		Ports:             *ports,
+		PortType:          *portType,
+		PortSpec:          *portSpec,
+		PortRate:          *portRate,
+		Services:          *services,
+		ServiceProbes:     *probes,
+		Vulns:             *vulns,
+		NVDAPIKey:         *nvdKey,
+		PDCPAPIKey:        *pdcpKey,
+		IPInfoToken:       *ipToken,
+		SubfinderCfg:      *sfConfig,
+		SubdomainWordlist: *wordlist,
 	}
 	if *skip != "" {
 		if err := p.ApplySkips(splitComma(*skip)); err != nil {
