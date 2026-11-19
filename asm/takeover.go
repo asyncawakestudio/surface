@@ -19,23 +19,27 @@ import (
 	miekgdns "github.com/miekg/dns"
 )
 
-// TakeoverRisk is a subdomain whose CNAME points at a third-party resource
+// takeoverRisk is a subdomain whose CNAME points at a third-party resource
 // that may be unclaimed, so someone else could claim it and serve content on
-// the subdomain.
-type TakeoverRisk struct {
-	Host string `json:"host"`
-	// CNAME is the target the subdomain points at.
-	CNAME string `json:"cname"`
-	// Service is the provider the CNAME belongs to, e.g. "AWS/S3". It is empty
-	// for a dangling CNAME that matches no known service.
-	Service string `json:"service,omitempty"`
-	// Severity is "high" when the service's "unclaimed" fingerprint matched,
-	// and "medium" for a dangling CNAME to an unknown service.
-	Severity string `json:"severity"`
-	// Evidence says what matched, e.g. `response contains "NoSuchBucket"`.
-	Evidence string `json:"evidence"`
-	// Reference links to a discussion of taking over this service.
-	Reference string `json:"reference,omitempty"`
+// the subdomain. It is reported as a Misconfiguration with Check "takeover".
+type takeoverRisk struct {
+	host     string
+	cname    string // the target the subdomain points at
+	service  string // provider, e.g. "AWS/S3"; empty when unknown
+	severity string // "high" when the service's fingerprint matched, else "medium"
+	evidence string // what matched, e.g. `https response contains "NoSuchBucket"`
+	ref      string // discussion of taking over the service
+}
+
+func (r takeoverRisk) misconfig() Misconfiguration {
+	detail := fmt.Sprintf("CNAME %s %s", r.cname, r.evidence)
+	if r.service != "" {
+		detail = fmt.Sprintf("CNAME %s (%s) looks unclaimed: %s", r.cname, r.service, r.evidence)
+	}
+	return Misconfiguration{
+		Host: r.host, Check: "takeover", Severity: r.severity, Detail: detail,
+		CNAME: r.cname, Service: r.service, Reference: r.ref,
+	}
 }
 
 //go:embed data/takeover-fingerprints.json
@@ -138,7 +142,7 @@ type takeoverCandidate struct {
 // It sends HTTP requests only to hosts whose CNAME names a service with an
 // error-page fingerprint, and DNS queries only for CNAME targets that didn't
 // resolve.
-func (s *Scanner) findTakeovers(ctx context.Context, domain string, records []DNSRecord) ([]TakeoverRisk, error) {
+func (s *Scanner) findTakeovers(ctx context.Context, domain string, records []DNSRecord) ([]takeoverRisk, error) {
 	candidates := takeoverCandidates(records)
 	if len(candidates) == 0 {
 		return nil, nil
@@ -153,27 +157,27 @@ func (s *Scanner) findTakeovers(ctx context.Context, domain string, records []DN
 	}
 	client := takeoverHTTPClient(s.opts.WebTimeout)
 	fps := takeoverFingerprints()
-	s.opts.Logger.Info("takeover: checking CNAMEs", "hosts", len(candidates))
+	s.opts.Logger.Info("misconfig: checking CNAMEs for takeovers", "hosts", len(candidates))
 
-	risks := make([]*TakeoverRisk, len(candidates))
+	risks := make([]*takeoverRisk, len(candidates))
 	forEach(ctx, candidates, s.opts.WebConcurrency, func(i int, c takeoverCandidate) {
 		target := c.cnames[len(c.cnames)-1]
 		dangling := len(c.ips) == 0 && nxdomain(target)
 		fp, matched := matchTakeoverService(fps, append(slices.Clone(c.cnames), c.ips...))
 		if fp == nil {
 			if dangling && !inDomain(target, domain) {
-				risks[i] = &TakeoverRisk{Host: c.host, CNAME: target, Severity: "medium",
-					Evidence: "CNAME target does not exist (NXDOMAIN); check whether it can be registered or claimed"}
+				risks[i] = &takeoverRisk{host: c.host, cname: target, severity: "medium",
+					evidence: "does not exist (NXDOMAIN); check whether it can be registered or claimed"}
 			}
 			return
 		}
-		risk := &TakeoverRisk{Host: c.host, CNAME: matched, Service: fp.service, Severity: "high", Reference: fp.reference}
+		risk := &takeoverRisk{host: c.host, cname: matched, service: fp.service, severity: "high", ref: fp.reference}
 		switch {
 		case fp.nxdomain:
 			if !dangling {
 				return
 			}
-			risk.Evidence = "CNAME target does not exist (NXDOMAIN)"
+			risk.evidence = "target does not exist (NXDOMAIN)"
 		case len(c.ips) == 0:
 			return // nothing to request
 		default:
@@ -181,7 +185,7 @@ func (s *Scanner) findTakeovers(ctx context.Context, domain string, records []DN
 			if !ok {
 				return
 			}
-			risk.Evidence = evidence
+			risk.evidence = evidence
 		}
 		risks[i] = risk
 	})
@@ -189,7 +193,7 @@ func (s *Scanner) findTakeovers(ctx context.Context, domain string, records []DN
 		return nil, err
 	}
 
-	var out []TakeoverRisk
+	var out []takeoverRisk
 	for _, r := range risks {
 		if r != nil {
 			out = append(out, *r)
@@ -276,22 +280,4 @@ func inDomain(name, domain string) bool {
 
 func normalizeName(name string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
-}
-
-// TakeoverDiff lists takeover risks that appeared (Added) or were fixed
-// (Removed).
-type TakeoverDiff struct {
-	// Compared is false unless both scans ran the takeover check.
-	Compared bool `json:"compared"`
-	SetDiff[TakeoverRisk]
-}
-
-func compareTakeovers(prev, cur *Result) TakeoverDiff {
-	d := TakeoverDiff{SetDiff: SetDiff[TakeoverRisk]{Added: []TakeoverRisk{}, Removed: []TakeoverRisk{}}}
-	if !prev.ran(StageTakeover) || !cur.ran(StageTakeover) {
-		return d
-	}
-	d.Compared = true
-	d.SetDiff = setDiff(prev.Takeovers, cur.Takeovers, func(r TakeoverRisk) string { return r.Host + "\x00" + r.CNAME })
-	return d
 }

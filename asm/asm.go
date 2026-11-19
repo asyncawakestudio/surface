@@ -2,7 +2,7 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> misconfig -> takeover -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> misconfig -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
 //
 // ipdr, ports, web and certs work from the hosts the DNS stage resolved. ports
 // is opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
@@ -11,9 +11,8 @@
 // runs (see WebPage), on the open ports or, without a port scan, on
 // Options.WebPorts. With Options.VulnLookup the vulns stage finds the CVEs
 // affecting the detected services' and technologies' versions (see
-// Vulnerability). The takeover stage flags subdomains whose CNAME points at an
-// unclaimed third-party resource (see TakeoverRisk), and the misconfig stage
-// checks SPF, DMARC, CAA and zone transfers (see Misconfiguration).
+// Vulnerability). The misconfig stage checks SPF, DMARC, CAA, zone transfers
+// and subdomain takeovers (see Misconfiguration).
 package asm
 
 import (
@@ -38,7 +37,6 @@ const (
 	StageDNS        Stage = "dns"
 	StageIPDR       Stage = "ipdr"
 	StageMisconfig  Stage = "misconfig"
-	StageTakeover   Stage = "takeover"
 	StagePorts      Stage = "ports"
 	StageWeb        Stage = "web"
 	// StageServices is service detection, part of the ports stage. It is
@@ -110,10 +108,9 @@ type Result struct {
 	TLSCerts   []TLSCert   `json:"tls_certs"`
 	IPInfo     []IPInfo    `json:"ip_info"`
 	PortScans  []PortScan  `json:"port_scans"`
-	// Misconfigurations lists weak DNS and email security settings.
+	// Misconfigurations lists weak DNS and email security settings and
+	// subdomains at risk of takeover.
 	Misconfigurations []Misconfiguration `json:"misconfigurations,omitempty"`
-	// Takeovers lists subdomains at risk of takeover.
-	Takeovers []TakeoverRisk `json:"takeovers,omitempty"`
 	// Web lists what each host serves over HTTP(S).
 	Web []WebPage `json:"web,omitempty"`
 	// Vulnerabilities is set when the scan ran with Options.VulnLookup.
@@ -155,10 +152,8 @@ type Options struct {
 	SkipIPDR bool
 	// SkipCerts disables the certificate stage (TLS inspection via tlsx).
 	SkipCerts bool
-	// SkipMisconfig disables the DNS and email security checks.
+	// SkipMisconfig disables the DNS, email and subdomain takeover checks.
 	SkipMisconfig bool
-	// SkipTakeover disables the subdomain takeover check.
-	SkipTakeover bool
 	// SkipWeb disables the web stage (HTTP probing via httpx).
 	SkipWeb bool
 	// WebPorts are the ports the web stage probes when there is no port scan.
@@ -368,15 +363,6 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		res.Misconfigurations, err = s.checkMisconfigs(ctx, domain, res.DNSRecords)
 		if err != nil {
 			return nil, fmt.Errorf("misconfiguration checks: %w", err)
-		}
-	}
-
-	if !s.opts.SkipTakeover {
-		progress(StageTakeover)
-		res.Stages = append(res.Stages, StageTakeover)
-		res.Takeovers, err = s.findTakeovers(ctx, domain, res.DNSRecords)
-		if err != nil {
-			return nil, fmt.Errorf("takeover check: %w", err)
 		}
 	}
 

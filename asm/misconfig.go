@@ -14,16 +14,25 @@ import (
 )
 
 // Misconfiguration is a DNS or email security setting that weakens the
-// domain: spoofable mail (SPF, DMARC), a zone anyone can download (AXFR), or no
-// restriction on who may issue its certificates (CAA).
+// domain: spoofable mail (SPF, DMARC), a zone anyone can download (AXFR), no
+// restriction on who may issue its certificates (CAA), or a subdomain whose
+// CNAME points at an unclaimed third-party resource (takeover).
 type Misconfiguration struct {
 	Host string `json:"host"`
-	// Check is "spf", "dmarc", "zone_transfer" or "caa".
+	// Check is "spf", "dmarc", "caa", "zone_transfer" or "takeover".
 	Check string `json:"check"`
 	// Severity is "high", "medium" or "low".
 	Severity string `json:"severity"`
 	// Detail says what is wrong and, where it helps, what the record says.
 	Detail string `json:"detail"`
+
+	// CNAME is the target a "takeover" finding's subdomain points at.
+	CNAME string `json:"cname,omitempty"`
+	// Service is the provider a "takeover" CNAME belongs to, e.g. "AWS/S3";
+	// empty when the target matches no known service.
+	Service string `json:"service,omitempty"`
+	// Reference links to a discussion of taking over the service.
+	Reference string `json:"reference,omitempty"`
 }
 
 const dnsCheckTimeout = 5 * time.Second
@@ -32,8 +41,10 @@ const dnsCheckTimeout = 5 * time.Second
 var axfrPort = "53"
 
 // checkMisconfigs runs the DNS and email checks on the root domain, plus SPF
-// on every subdomain that receives mail (has MX records). DMARC is checked on
-// the root only: its policy covers subdomains unless they publish their own.
+// on every subdomain that receives mail (has MX records), and the takeover
+// check on every subdomain with a CNAME. DMARC is checked on the root only: its
+// policy covers subdomains unless they publish their own. Findings are sorted
+// by severity, most severe first.
 func (s *Scanner) checkMisconfigs(ctx context.Context, domain string, records []DNSRecord) ([]Misconfiguration, error) {
 	q := dnsQuerier{resolvers: plainResolvers(s.dnsResolvers(domain))}
 	if len(q.resolvers) == 0 {
@@ -112,9 +123,21 @@ func (s *Scanner) checkMisconfigs(ctx context.Context, domain string, records []
 		}
 	}
 
+	// Subdomain takeovers
+	risks, err := s.findTakeovers(ctx, domain, records)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range risks {
+		out = append(out, r.misconfig())
+	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	slices.SortStableFunc(out, func(a, b Misconfiguration) int {
+		return severityRank[b.Severity] - severityRank[a.Severity]
+	})
 	return out, nil
 }
 
