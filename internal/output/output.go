@@ -84,6 +84,9 @@ func flatten(r *asm.Result) []record {
 			}
 		}
 	}
+	for _, m := range r.Misconfigurations {
+		rows = append(rows, record{Type: "misconfig", Host: m.Host, Field: m.Check, Value: m.Severity + ": " + m.Detail})
+	}
 	for _, t := range r.Takeovers {
 		rows = append(rows, record{Type: "takeover", Host: t.Host, Field: t.Severity, Value: takeoverDetails(t)})
 	}
@@ -170,6 +173,13 @@ func renderText(w io.Writer, r *asm.Result) error {
 			continue
 		}
 		p("  %-18s %s\n", i.IP, summarizeIPInfo(i.Data))
+	}
+
+	if len(r.Misconfigurations) > 0 || slices.Contains(r.Stages, asm.StageMisconfig) {
+		p("\nMisconfigurations (%d)\n", len(r.Misconfigurations))
+		for _, m := range r.Misconfigurations {
+			p("  %-6s  %-13s %s  %s\n", m.Severity, m.Check, m.Host, m.Detail)
+		}
 	}
 
 	if len(r.Takeovers) > 0 || slices.Contains(r.Stages, asm.StageTakeover) {

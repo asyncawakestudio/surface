@@ -253,3 +253,31 @@ func TestRenderTakeovers(t *testing.T) {
 		t.Errorf("txt:\n%s", b.String())
 	}
 }
+
+func TestRenderMisconfigs(t *testing.T) {
+	r := sample()
+	r.Misconfigurations = []asm.Misconfiguration{
+		{Host: "example.com", Check: "dmarc", Severity: "medium", Detail: "no DMARC record"},
+		{Host: "example.com", Check: "zone_transfer", Severity: "high", Detail: "nameserver ns1.example.com allows zone transfers"},
+	}
+	var b strings.Builder
+	if err := Render(&b, r, "txt"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Misconfigurations (2)\n",
+		"  medium  dmarc         example.com  no DMARC record\n",
+		"  high    zone_transfer example.com  nameserver ns1.example.com allows zone transfers\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("txt missing %q in:\n%s", want, b.String())
+		}
+	}
+	b.Reset()
+	if err := Render(&b, r, "csv"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "misconfig,example.com,,,dmarc,medium: no DMARC record"; !strings.Contains(b.String(), want) {
+		t.Errorf("csv missing %q in:\n%s", want, b.String())
+	}
+}
