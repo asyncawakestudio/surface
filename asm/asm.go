@@ -2,13 +2,16 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> ports (naabu) -> vulns (NVD, vulnx) -> certs (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
 //
-// ipdr, ports and certs work from the hosts the DNS stage resolved. ports is
-// opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
-// also identifies the service on each open port (see Service), and with
-// Options.VulnLookup the vulns stage finds the CVEs affecting those services'
-// versions (see Vulnerability).
+// ipdr, ports, web and certs work from the hosts the DNS stage resolved. ports
+// is opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
+// also identifies the service on each open port (see Service). The web stage
+// records what each host serves over HTTP(S), including the technologies it
+// runs (see WebPage), on the open ports or, without a port scan, on
+// Options.WebPorts. With Options.VulnLookup the vulns stage finds the CVEs
+// affecting the detected services' and technologies' versions (see
+// Vulnerability).
 package asm
 
 import (
@@ -33,6 +36,7 @@ const (
 	StageDNS        Stage = "dns"
 	StageIPDR       Stage = "ipdr"
 	StagePorts      Stage = "ports"
+	StageWeb        Stage = "web"
 	// StageServices is service detection, part of the ports stage. It is
 	// recorded in Result.Stages but not reported to a ProgressFunc.
 	StageServices Stage = "services"
@@ -102,6 +106,8 @@ type Result struct {
 	TLSCerts   []TLSCert   `json:"tls_certs"`
 	IPInfo     []IPInfo    `json:"ip_info"`
 	PortScans  []PortScan  `json:"port_scans"`
+	// Web lists what each host serves over HTTP(S).
+	Web []WebPage `json:"web,omitempty"`
 	// Vulnerabilities is set when the scan ran with Options.VulnLookup.
 	Vulnerabilities []ServiceVulnerabilities `json:"vulnerabilities,omitempty"`
 }
@@ -141,6 +147,15 @@ type Options struct {
 	SkipIPDR bool
 	// SkipCerts disables the certificate stage (TLS inspection via tlsx).
 	SkipCerts bool
+	// SkipWeb disables the web stage (HTTP probing via httpx).
+	SkipWeb bool
+	// WebPorts are the ports the web stage probes when there is no port scan.
+	// With one, every open port that may serve HTTP is probed instead.
+	WebPorts []int
+	// WebConcurrency is the number of web requests in flight.
+	WebConcurrency int
+	// WebTimeout is the per-request timeout.
+	WebTimeout time.Duration
 	// PortScanType selects the naabu scan mode: "syn" (half-open, needs raw
 	// sockets, libpcap and a routable interface) or "connect" (full TCP
 	// connect, works through NAT such as a Docker bridge / WSL2). Defaults to
@@ -172,7 +187,8 @@ type Options struct {
 	// VulnLookup finds the CVEs affecting each detected service's version:
 	// NVD matches its versioned CPE against affected version ranges, and
 	// ProjectDiscovery's vulnerability API (vulnx) adds exploitation data.
-	// It requires ServiceDetection.
+	// It works from the services ServiceDetection identifies and the
+	// technologies the web stage detects, so it needs at least one of them.
 	VulnLookup bool
 	// NVDAPIKey raises NVD's rate limit from 5 to 50 requests per 30s.
 	// Optional.
@@ -236,6 +252,15 @@ func (o Options) withDefaults() Options {
 	if o.ServiceWorkers <= 0 {
 		o.ServiceWorkers = 25
 	}
+	if len(o.WebPorts) == 0 {
+		o.WebPorts = []int{80, 443}
+	}
+	if o.WebConcurrency <= 0 {
+		o.WebConcurrency = 25
+	}
+	if o.WebTimeout <= 0 {
+		o.WebTimeout = 10 * time.Second
+	}
 	if o.NVDBaseURL == "" {
 		o.NVDBaseURL = "https://services.nvd.nist.gov"
 	}
@@ -276,7 +301,7 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 	// Check service detection up front rather than after minutes of
 	// enumeration: naabu itself only warns and skips it without probes.
-	if s.opts.VulnLookup && !s.opts.ServiceDetection {
+	if s.opts.VulnLookup && !s.opts.ServiceDetection && s.opts.SkipWeb {
 		return nil, ErrVulnLookupNeedsServices
 	}
 	probesFile := ""
@@ -337,10 +362,20 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		}
 	}
 
+	if !s.opts.SkipWeb {
+		progress(StageWeb)
+		res.Stages = append(res.Stages, StageWeb)
+		targets := s.webTargets(resolved, res.PortScans, s.opts.PortScan)
+		res.Web, err = s.probeWeb(ctx, targets)
+		if err != nil {
+			return nil, fmt.Errorf("web probing: %w", err)
+		}
+	}
+
 	if s.opts.VulnLookup {
 		progress(StageVulns)
 		res.Stages = append(res.Stages, StageVulns)
-		res.Vulnerabilities, err = s.lookupVulns(ctx, res.Services())
+		res.Vulnerabilities, err = s.lookupVulns(ctx, vulnTargets(res.Services(), res.Web))
 		if err != nil {
 			return nil, fmt.Errorf("vulnerability lookup: %w", err)
 		}

@@ -5,6 +5,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,7 +16,7 @@ import (
 )
 
 // Params are the knobs both front-ends expose. By default subdomains, dns,
-// ipdr and certs run; the port scan is opt-in (Ports) because it probes every
+// ipdr, web and certs run; the port scan is opt-in (Ports) because it probes every
 // resolved IP, including third-party infrastructure. Set the Skip* fields to
 // turn stages off. Zero values elsewhere mean "default", except Domain which
 // is required.
@@ -23,13 +24,14 @@ type Params struct {
 	Domain        string
 	SkipIPDR      bool
 	SkipCerts     bool
+	SkipWeb       bool
 	Ports         bool   // run the port scan
 	PortType      string // "connect" (default) or "syn"
 	PortSpec      string // naabu port spec, e.g. "-", "1-1000", "80,443"
 	PortRate      int
 	Services      bool   // identify the service on each open port (needs Ports)
 	ServiceProbes string // nmap-service-probes path; empty = local nmap's copy
-	Vulns         bool   // look up CVEs for detected services (needs Services)
+	Vulns         bool   // look up CVEs for detected services and web technologies
 	NVDAPIKey     string // optional; raises NVD's rate limit
 	PDCPAPIKey    string // optional; ProjectDiscovery Cloud key for vulnx
 	Resolvers     []string
@@ -57,6 +59,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		IPInfoToken:             p.IPInfoToken,
 		SkipIPDR:                p.SkipIPDR,
 		SkipCerts:               p.SkipCerts,
+		SkipWeb:                 p.SkipWeb,
 		PortScan:                p.Ports,
 		PortScanType:            portType,
 		PortScanPorts:           p.PortSpec,
@@ -73,7 +76,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 // StageNames are the stages a caller may skip. subdomains and dns are
 // foundational (everything depends on them) and cannot be skipped; ports is
 // off unless requested.
-var StageNames = []string{"ipdr", "certs"}
+var StageNames = []string{"ipdr", "web", "certs"}
 
 // ApplySkips sets the Skip* fields from stage names, returning an error for an
 // unknown or non-skippable name.
@@ -84,11 +87,25 @@ func (p *Params) ApplySkips(names []string) error {
 			p.SkipIPDR = true
 		case "certs":
 			p.SkipCerts = true
+		case "web":
+			p.SkipWeb = true
 		case "ports":
 			return fmt.Errorf("the port scan is off by default; there is no need to skip it")
 		default:
 			return fmt.Errorf("cannot skip %q (skippable stages: %s)", n, strings.Join(StageNames, ", "))
 		}
+	}
+	return nil
+}
+
+// ErrVulnsNeedInput is returned by Validate when the CVE lookup has nothing to
+// work from.
+var ErrVulnsNeedInput = errors.New("the vulns lookup needs services or the web stage (it is skipped)")
+
+// Validate checks combinations of stages the engine would reject.
+func (p Params) Validate() error {
+	if p.Vulns && !p.Services && p.SkipWeb {
+		return ErrVulnsNeedInput
 	}
 	return nil
 }

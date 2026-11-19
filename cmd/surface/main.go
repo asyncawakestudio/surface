@@ -5,6 +5,7 @@
 //	surface --ports --skip=certs example.com
 //	surface --ports --services example.com
 //	surface --ports --services --vulns example.com
+//	surface --vulns example.com         # CVEs for web technologies only
 //
 // It runs the same engine the MCP server and the cloud product use.
 package main
@@ -52,7 +53,7 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default these stages run: subdomains, dns, ipdr, certs. The port scan is
+By default these stages run: subdomains, dns, ipdr, web, certs. The port scan is
 opt-in (--ports) since it probes every IP the domain resolves to, including
 hosting and CDN infrastructure you may not own.
 
@@ -61,15 +62,15 @@ Output:
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, certs
+  --skip <stages>       comma-separated stages to skip: ipdr, web, certs
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
                         (product, version, CPEs) using nmap's service probes;
                         needs nmap installed or --service-probes
-  --vulns               with --services, look up the CVEs affecting each
-                        detected service's version (NVD), with exploitation
+  --vulns               look up the CVEs affecting each detected service's
+                        and web technology's version (NVD), with exploitation
                         data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs)
   --quiet               suppress progress logging on stderr
 
@@ -98,7 +99,7 @@ func runScan(args []string) int {
 	fs.Usage = usage
 	var (
 		outDest   = fs.String("output", "", "output destination: a file path (format by extension) or a format name; empty = txt to stdout")
-		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, certs")
+		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, web, certs")
 		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
@@ -110,7 +111,7 @@ func runScan(args []string) int {
 		portRate  = fs.Int("port-rate", 0, "packets/sec for the port scan")
 		services  = fs.Bool("services", false, "identify the service on each open port (needs --ports)")
 		probes    = fs.String("service-probes", "", "nmap-service-probes file for --services")
-		vulns     = fs.Bool("vulns", false, "look up CVEs for detected services (needs --services)")
+		vulns     = fs.Bool("vulns", false, "look up CVEs for detected services and web technologies")
 		nvdKey    = fs.String("nvd-api-key", os.Getenv("NVD_API_KEY"), "NVD API key for --vulns")
 		pdcpKey   = fs.String("pdcp-api-key", os.Getenv("PDCP_API_KEY"), "ProjectDiscovery Cloud API key for --vulns")
 	)
@@ -133,8 +134,8 @@ func runScan(args []string) int {
 		fmt.Fprintln(os.Stderr, "error: --port-type, --port-spec, --port-rate and --services require --ports")
 		return 2
 	}
-	if !*services && (*probes != "" || *vulns) {
-		fmt.Fprintln(os.Stderr, "error: --service-probes and --vulns require --services")
+	if !*services && *probes != "" {
+		fmt.Fprintln(os.Stderr, "error: --service-probes requires --services")
 		return 2
 	}
 
@@ -157,6 +158,10 @@ func runScan(args []string) int {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			return 2
 		}
+	}
+	if err := p.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 2
 	}
 	if *resolvers != "" {
 		p.Resolvers = splitComma(*resolvers)

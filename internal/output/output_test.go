@@ -185,3 +185,34 @@ func TestRenderVulnerabilities(t *testing.T) {
 		t.Error("txt has a Vulnerabilities section without a lookup")
 	}
 }
+
+func TestRenderWeb(t *testing.T) {
+	r := sample()
+	r.Web = []asm.WebPage{
+		{URL: "http://blog.example.com", Host: "blog.example.com", Port: 80, StatusCode: 301, Location: "https://blog.example.com/"},
+		{URL: "https://www.example.com", Host: "www.example.com", IP: "1.2.3.4", Port: 443, StatusCode: 200, Title: "Home",
+			Technologies: []asm.Technology{{Name: "Nginx", Version: "1.18.0"}, {Name: "WordPress", Version: "6.4.1"}}, CDN: "cloudflare"},
+	}
+	var b strings.Builder
+	if err := Render(&b, r, "txt"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Web (2)\n",
+		"  http://blog.example.com  301  → https://blog.example.com/\n",
+		`  https://www.example.com  200  "Home"  Nginx 1.18.0 · WordPress 6.4.1  [cloudflare]` + "\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("txt missing %q in:\n%s", want, b.String())
+		}
+	}
+
+	b.Reset()
+	if err := Render(&b, r, "csv"); err != nil {
+		t.Fatal(err)
+	}
+	want := "web,www.example.com,1.2.3.4,443,https://www.example.com,status=200; title=Home; tech=Nginx 1.18.0|WordPress 6.4.1; cdn=cloudflare"
+	if !strings.Contains(b.String(), want) {
+		t.Errorf("csv missing %q in:\n%s", want, b.String())
+	}
+}
