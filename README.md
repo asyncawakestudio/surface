@@ -104,8 +104,9 @@ and CPEs (CPE 2.3, the identifiers vulnerability databases use).
 
 ### Misconfigurations (on by default)
 
-Flags DNS and email settings that let others spoof the domain's mail, read
-its DNS or take over its subdomains. Findings are listed most severe first.
+Flags DNS, email and TLS settings that let others spoof the domain's mail,
+read its DNS, take over its subdomains or weaken its encrypted connections.
+Findings are listed most severe first.
 
 | Check | Flags |
 |-------|-------|
@@ -114,6 +115,10 @@ its DNS or take over its subdomains. Findings are listed most severe first.
 | `spf` | No SPF record, several records, `+all` (anyone may send, high), `?all` or no `all` (spoofed mail isn't rejected). Run on the root domain and every subdomain with MX records. |
 | `dmarc` | No DMARC record on the root domain, several records, `p=none` or no policy; `sp=none` or `pct` below 100 (low). |
 | `caa` | No CAA record: any certificate authority may issue certificates for the domain (low). |
+| `tls_version` | An endpoint whose best protocol is SSL 3.0, TLS 1.0 or TLS 1.1. |
+| `tls_cipher` | A broken cipher negotiated: RC4, DES/3DES, NULL, export grade, anonymous or MD5 (high). |
+| `cert_expired`, `cert_expiring` | A certificate that has expired (high) or expires within 30 days. |
+| `cert_self_signed`, `cert_mismatch` | A self-signed certificate, or one that doesn't cover the host. |
 
 - Works from the DNS stage's records. It also sends one AXFR attempt per
   nameserver of the root domain, and HTTP requests only to subdomains whose
@@ -123,6 +128,10 @@ its DNS or take over its subdomains. Findings are listed most severe first.
   [can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz)
   (CC BY 4.0); `make update-fingerprints` refreshes them. Services it lists
   as edge cases, such as GitHub Pages and Heroku, are at most medium.
+- The TLS checks use the certificate stage's connections, so they need it
+  (`--skip certs` turns them off). It probes port 443 on every host, plus
+  ports where the port scan or web stage saw TLS. Only the version and cipher
+  each endpoint negotiates are checked, not every one it accepts.
 - DKIM isn't checked: its records live under selector names that can't be
   listed, so a missing key can't be told apart from an unknown selector.
 - Turn it off with `--skip misconfig`.

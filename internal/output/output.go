@@ -85,7 +85,7 @@ func flatten(r *asm.Result) []record {
 		}
 	}
 	for _, m := range r.Misconfigurations {
-		rows = append(rows, record{Type: "misconfig", Host: m.Host, Field: m.Check, Value: m.Severity + ": " + m.Detail})
+		rows = append(rows, record{Type: "misconfig", Host: m.Host, Port: m.Port, Field: m.Check, Value: m.Severity + ": " + m.Detail})
 	}
 	for _, wp := range r.Web {
 		rows = append(rows, record{Type: "web", Host: wp.Host, IP: wp.IP, Port: wp.Port, Field: wp.URL, Value: webDetails(wp)})
@@ -175,7 +175,11 @@ func renderText(w io.Writer, r *asm.Result) error {
 	if len(r.Misconfigurations) > 0 || slices.Contains(r.Stages, asm.StageMisconfig) {
 		p("\nMisconfigurations (%d)\n", len(r.Misconfigurations))
 		for _, m := range r.Misconfigurations {
-			p("  %-6s  %-13s %s  %s\n", m.Severity, m.Check, m.Host, m.Detail)
+			host := m.Host
+			if m.Port != 0 {
+				host += ":" + strconv.Itoa(m.Port)
+			}
+			p("  %-6s  %-16s %s  %s\n", m.Severity, m.Check, host, m.Detail)
 		}
 	}
 

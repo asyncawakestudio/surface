@@ -140,7 +140,8 @@ type Options struct {
 	DNSConcurrency int
 	// TLSConcurrency is the number of hosts probed for TLS in parallel.
 	TLSConcurrency int
-	// TLSPorts are the ports probed for certificates.
+	// TLSPorts are the ports probed for certificates on every host. Ports
+	// where the port scan or web stage saw TLS are probed too.
 	TLSPorts []int
 	// TLSTimeout is the per-connection timeout.
 	TLSTimeout time.Duration
@@ -419,15 +420,18 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		}
 	}
 
-	// TODO: ports with a TLS service can feed the TLS stage instead of the
-	// static TLSPorts list.
-
 	if !s.opts.SkipCerts {
 		progress(StageCerts)
 		res.Stages = append(res.Stages, StageCerts)
-		res.TLSCerts, err = s.grabCerts(ctx, resolved)
+		res.TLSCerts, err = s.grabCerts(ctx, resolved, tlsPortsByHost(resolved, res.PortScans, res.Web))
 		if err != nil {
 			return nil, fmt.Errorf("tls probing: %w", err)
+		}
+		// The misconfig stage ran before any certificate was seen; add the
+		// TLS findings to it now.
+		if !s.opts.SkipMisconfig {
+			res.Misconfigurations = append(res.Misconfigurations, tlsMisconfigs(res.TLSCerts, time.Now())...)
+			sortMisconfigs(res.Misconfigurations)
 		}
 	}
 

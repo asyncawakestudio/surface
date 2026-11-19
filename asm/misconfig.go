@@ -13,13 +13,18 @@ import (
 	miekgdns "github.com/miekg/dns"
 )
 
-// Misconfiguration is a DNS or email security setting that weakens the
-// domain: spoofable mail (SPF, DMARC), a zone anyone can download (AXFR), no
-// restriction on who may issue its certificates (CAA), or a subdomain whose
-// CNAME points at an unclaimed third-party resource (takeover).
+// Misconfiguration is a setting that weakens the domain: spoofable mail (SPF,
+// DMARC), a zone anyone can download (AXFR), no restriction on who may issue
+// its certificates (CAA), a subdomain whose CNAME points at an unclaimed
+// third-party resource (takeover), or a weak TLS endpoint: an old protocol or
+// cipher, or an expired, expiring, self-signed or mismatched certificate.
 type Misconfiguration struct {
 	Host string `json:"host"`
-	// Check is "spf", "dmarc", "caa", "zone_transfer" or "takeover".
+	// Port is set for findings about one endpoint (the TLS checks).
+	Port int `json:"port,omitempty"`
+	// Check is "spf", "dmarc", "caa", "zone_transfer", "takeover",
+	// "tls_version", "tls_cipher", "cert_expired", "cert_expiring",
+	// "cert_self_signed" or "cert_mismatch".
 	Check string `json:"check"`
 	// Severity is "high", "medium" or "low".
 	Severity string `json:"severity"`
@@ -135,9 +140,7 @@ func (s *Scanner) checkMisconfigs(ctx context.Context, domain string, records []
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	slices.SortStableFunc(out, func(a, b Misconfiguration) int {
-		return severityRank[b.Severity] - severityRank[a.Severity]
-	})
+	sortMisconfigs(out)
 	return out, nil
 }
 

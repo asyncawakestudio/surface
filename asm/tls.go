@@ -2,15 +2,17 @@ package asm
 
 import (
 	"context"
+	"slices"
 	"strconv"
 
 	"github.com/projectdiscovery/tlsx/pkg/tlsx"
 	"github.com/projectdiscovery/tlsx/pkg/tlsx/clients"
 )
 
-// grabCerts connects to each resolved host on the configured TLS ports and
-// records the leaf certificate. Hosts that don't speak TLS are skipped.
-func (s *Scanner) grabCerts(ctx context.Context, hosts []resolvedHost) ([]TLSCert, error) {
+// grabCerts connects to each resolved host on the configured TLS ports, plus
+// the host's ports in extraPorts, and records the leaf certificate. Hosts
+// that don't speak TLS are skipped.
+func (s *Scanner) grabCerts(ctx context.Context, hosts []resolvedHost, extraPorts map[string][]int) ([]TLSCert, error) {
 	svc, err := tlsx.New(&clients.Options{
 		ScanMode:    "auto",
 		Timeout:     int(s.opts.TLSTimeout.Seconds()),
@@ -27,7 +29,13 @@ func (s *Scanner) grabCerts(ctx context.Context, hosts []resolvedHost) ([]TLSCer
 	}
 	var targets []target
 	for _, h := range hosts {
-		for _, port := range s.opts.TLSPorts {
+		ports := slices.Clone(s.opts.TLSPorts)
+		for _, p := range extraPorts[h.Host] {
+			if !slices.Contains(ports, p) {
+				ports = append(ports, p)
+			}
+		}
+		for _, port := range ports {
 			targets = append(targets, target{host: h.Host, ip: h.IPs[0], port: port})
 		}
 	}
