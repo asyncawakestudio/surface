@@ -2,7 +2,7 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> takeover -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> misconfig -> takeover -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
 //
 // ipdr, ports, web and certs work from the hosts the DNS stage resolved. ports
 // is opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
@@ -12,7 +12,8 @@
 // Options.WebPorts. With Options.VulnLookup the vulns stage finds the CVEs
 // affecting the detected services' and technologies' versions (see
 // Vulnerability). The takeover stage flags subdomains whose CNAME points at an
-// unclaimed third-party resource (see TakeoverRisk).
+// unclaimed third-party resource (see TakeoverRisk), and the misconfig stage
+// checks SPF, DMARC, CAA and zone transfers (see Misconfiguration).
 package asm
 
 import (
@@ -36,6 +37,7 @@ const (
 	StageSubdomains Stage = "subdomains"
 	StageDNS        Stage = "dns"
 	StageIPDR       Stage = "ipdr"
+	StageMisconfig  Stage = "misconfig"
 	StageTakeover   Stage = "takeover"
 	StagePorts      Stage = "ports"
 	StageWeb        Stage = "web"
@@ -108,6 +110,8 @@ type Result struct {
 	TLSCerts   []TLSCert   `json:"tls_certs"`
 	IPInfo     []IPInfo    `json:"ip_info"`
 	PortScans  []PortScan  `json:"port_scans"`
+	// Misconfigurations lists weak DNS and email security settings.
+	Misconfigurations []Misconfiguration `json:"misconfigurations,omitempty"`
 	// Takeovers lists subdomains at risk of takeover.
 	Takeovers []TakeoverRisk `json:"takeovers,omitempty"`
 	// Web lists what each host serves over HTTP(S).
@@ -151,6 +155,8 @@ type Options struct {
 	SkipIPDR bool
 	// SkipCerts disables the certificate stage (TLS inspection via tlsx).
 	SkipCerts bool
+	// SkipMisconfig disables the DNS and email security checks.
+	SkipMisconfig bool
 	// SkipTakeover disables the subdomain takeover check.
 	SkipTakeover bool
 	// SkipWeb disables the web stage (HTTP probing via httpx).
@@ -353,6 +359,15 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		res.IPInfo, err = s.lookupIPs(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("ip lookup: %w", err)
+		}
+	}
+
+	if !s.opts.SkipMisconfig {
+		progress(StageMisconfig)
+		res.Stages = append(res.Stages, StageMisconfig)
+		res.Misconfigurations, err = s.checkMisconfigs(ctx, domain, res.DNSRecords)
+		if err != nil {
+			return nil, fmt.Errorf("misconfiguration checks: %w", err)
 		}
 	}
 

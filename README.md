@@ -26,17 +26,17 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default these stages run: subdomains, dns, ipdr, takeover, web, certs. The port scan is
-opt-in (--ports) since it probes every IP the domain resolves to, including
-hosting and CDN infrastructure you may not own.
+By default these stages run: subdomains, dns, ipdr, misconfig, takeover,
+web, certs. The port scan is opt-in (--ports) since it probes every IP the
+domain resolves to, including hosting and CDN infrastructure you may not own.
 
 Output:
   --output <dest>       where/how to write results (default: txt to stdout).
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, takeover, web,
-                        certs
+  --skip <stages>       comma-separated stages to skip: ipdr, misconfig,
+                        takeover, web, certs
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
@@ -81,6 +81,23 @@ and CPEs (CPE 2.3, the identifiers vulnerability databases use).
   is missing.
 - **Intrusive:** sends protocol probes to every open port, not just a
   connection attempt.
+
+### DNS and email checks (on by default)
+
+Flags settings that let others spoof the domain's mail or learn or abuse its
+DNS:
+
+| Check | Flags |
+|-------|-------|
+| `spf` | No SPF record, several records, `+all` (anyone may send, high), `?all` or no `all` (spoofed mail isn't rejected). Run on the root domain and every subdomain with MX records. |
+| `dmarc` | No DMARC record on the root domain, several records, `p=none` or no policy; `sp=none` or `pct` below 100 (low). |
+| `caa` | No CAA record: any certificate authority may issue certificates for the domain (low). |
+| `zone_transfer` | A nameserver that hands its whole zone to anyone (AXFR, high). |
+
+- Only DNS queries, plus one AXFR attempt per nameserver of the root domain.
+- DKIM isn't checked: its records live under selector names that can't be
+  listed, so a missing key can't be told apart from an unknown selector.
+- Turn it off with `--skip misconfig`.
 
 ### Subdomain takeover (on by default)
 
@@ -170,6 +187,7 @@ scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceD
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
 // res.Services(): every identified service with its IP, hosts and port
+// res.Misconfigurations: weak SPF, DMARC, CAA and zone transfer settings
 // res.Takeovers: subdomains whose CNAME points at an unclaimed resource
 // res.Web: what each host serves over HTTP(S), with detected technologies
 // res.Vulnerabilities: with VulnLookup, the CVEs affecting each service and technology
@@ -178,8 +196,9 @@ res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
 `"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
 changed between scans): subdomains, DNS records, IP data, certificates, open ports,
-service versions, web pages, takeover risks and CVEs. Ports, web pages, takeover risks
-and CVEs are only compared when both scans looked for them (`Result.Stages`).
+service versions, web pages, takeover risks, misconfigurations and CVEs. Ports, web
+pages, takeover risks, misconfigurations and CVEs are only compared when both scans
+looked for them (`Result.Stages`).
 
 ## Building
 
