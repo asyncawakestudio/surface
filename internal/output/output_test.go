@@ -216,3 +216,40 @@ func TestRenderWeb(t *testing.T) {
 		t.Errorf("csv missing %q in:\n%s", want, b.String())
 	}
 }
+
+func TestRenderTakeovers(t *testing.T) {
+	r := sample()
+	r.Takeovers = []asm.TakeoverRisk{
+		{Host: "assets.example.com", CNAME: "assets-old.s3.amazonaws.com", Service: "AWS/S3", Severity: "high",
+			Evidence: `https response contains "NoSuchBucket"`},
+		{Host: "promo.example.com", CNAME: "promo.gone.example", Severity: "medium", Evidence: "CNAME target does not exist (NXDOMAIN)"},
+	}
+	var b strings.Builder
+	if err := Render(&b, r, "txt"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Takeover risks (2)\n",
+		`  assets.example.com  CNAME assets-old.s3.amazonaws.com  [high, AWS/S3: https response contains "NoSuchBucket"]` + "\n",
+		"  promo.example.com  CNAME promo.gone.example  [medium, unknown service: CNAME target does not exist (NXDOMAIN)]\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("txt missing %q in:\n%s", want, b.String())
+		}
+	}
+	b.Reset()
+	if err := Render(&b, r, "csv"); err != nil {
+		t.Fatal(err)
+	}
+	if want := `takeover,assets.example.com,,,high,"cname=assets-old.s3.amazonaws.com; service=AWS/S3; evidence=https response contains ""NoSuchBucket"""`; !strings.Contains(b.String(), want) {
+		t.Errorf("csv missing %q in:\n%s", want, b.String())
+	}
+
+	// A check that found nothing still says so.
+	r.Takeovers, r.Stages = nil, []asm.Stage{asm.StageTakeover}
+	b.Reset()
+	_ = Render(&b, r, "txt")
+	if !strings.Contains(b.String(), "Takeover risks (0)") {
+		t.Errorf("txt:\n%s", b.String())
+	}
+}

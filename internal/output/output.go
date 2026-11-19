@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -82,6 +83,9 @@ func flatten(r *asm.Result) []record {
 				rows = append(rows, record{Type: "service", IP: ps.IP, Port: p.Port, Field: p.Service.Name, Value: serviceDetails(*p.Service)})
 			}
 		}
+	}
+	for _, t := range r.Takeovers {
+		rows = append(rows, record{Type: "takeover", Host: t.Host, Field: t.Severity, Value: takeoverDetails(t)})
 	}
 	for _, wp := range r.Web {
 		rows = append(rows, record{Type: "web", Host: wp.Host, IP: wp.IP, Port: wp.Port, Field: wp.URL, Value: webDetails(wp)})
@@ -166,6 +170,17 @@ func renderText(w io.Writer, r *asm.Result) error {
 			continue
 		}
 		p("  %-18s %s\n", i.IP, summarizeIPInfo(i.Data))
+	}
+
+	if len(r.Takeovers) > 0 || slices.Contains(r.Stages, asm.StageTakeover) {
+		p("\nTakeover risks (%d)\n", len(r.Takeovers))
+		for _, t := range r.Takeovers {
+			service := t.Service
+			if service == "" {
+				service = "unknown service"
+			}
+			p("  %s  CNAME %s  [%s, %s: %s]\n", t.Host, t.CNAME, t.Severity, service, t.Evidence)
+		}
 	}
 
 	if len(r.PortScans) > 0 {
@@ -264,6 +279,19 @@ func webSummary(wp asm.WebPage) string {
 		parts = append(parts, "["+wp.CDN+"]")
 	}
 	return strings.Join(parts, "  ")
+}
+
+// takeoverDetails is the value of a csv/xml takeover row.
+func takeoverDetails(t asm.TakeoverRisk) string {
+	parts := []string{"cname=" + t.CNAME}
+	if t.Service != "" {
+		parts = append(parts, "service="+t.Service)
+	}
+	parts = append(parts, "evidence="+t.Evidence)
+	if t.Reference != "" {
+		parts = append(parts, "ref="+t.Reference)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // webDetails is the value of a csv/xml web row.
