@@ -26,15 +26,10 @@ jobs:
           manifest-file: .github/release-please/manifest.json
 
   # Tags pushed with GITHUB_TOKEN don't trigger other workflows, so the
-  # binaries are built here rather than from a tag-push workflow.
-  ci:
-    name: Go Lang
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    uses: ./.github/workflows/ci.yml
-
+  # binaries are built here rather than from a tag-push workflow. Tests run in
+  # CI: the released commit is the release PR's merge, which CI already ran on.
   goreleaser:
-    needs: [release-please, ci]
+    needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
