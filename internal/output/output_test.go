@@ -217,57 +217,23 @@ func TestRenderWeb(t *testing.T) {
 	}
 }
 
-func TestRenderTakeovers(t *testing.T) {
-	r := sample()
-	r.Takeovers = []asm.TakeoverRisk{
-		{Host: "assets.example.com", CNAME: "assets-old.s3.amazonaws.com", Service: "AWS/S3", Severity: "high",
-			Evidence: `https response contains "NoSuchBucket"`},
-		{Host: "promo.example.com", CNAME: "promo.gone.example", Severity: "medium", Evidence: "CNAME target does not exist (NXDOMAIN)"},
-	}
-	var b strings.Builder
-	if err := Render(&b, r, "txt"); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"Takeover risks (2)\n",
-		`  assets.example.com  CNAME assets-old.s3.amazonaws.com  [high, AWS/S3: https response contains "NoSuchBucket"]` + "\n",
-		"  promo.example.com  CNAME promo.gone.example  [medium, unknown service: CNAME target does not exist (NXDOMAIN)]\n",
-	} {
-		if !strings.Contains(b.String(), want) {
-			t.Errorf("txt missing %q in:\n%s", want, b.String())
-		}
-	}
-	b.Reset()
-	if err := Render(&b, r, "csv"); err != nil {
-		t.Fatal(err)
-	}
-	if want := `takeover,assets.example.com,,,high,"cname=assets-old.s3.amazonaws.com; service=AWS/S3; evidence=https response contains ""NoSuchBucket"""`; !strings.Contains(b.String(), want) {
-		t.Errorf("csv missing %q in:\n%s", want, b.String())
-	}
-
-	// A check that found nothing still says so.
-	r.Takeovers, r.Stages = nil, []asm.Stage{asm.StageTakeover}
-	b.Reset()
-	_ = Render(&b, r, "txt")
-	if !strings.Contains(b.String(), "Takeover risks (0)") {
-		t.Errorf("txt:\n%s", b.String())
-	}
-}
-
 func TestRenderMisconfigs(t *testing.T) {
 	r := sample()
 	r.Misconfigurations = []asm.Misconfiguration{
 		{Host: "example.com", Check: "dmarc", Severity: "medium", Detail: "no DMARC record"},
 		{Host: "example.com", Check: "zone_transfer", Severity: "high", Detail: "nameserver ns1.example.com allows zone transfers"},
+		{Host: "assets.example.com", Check: "takeover", Severity: "high", CNAME: "assets-old.s3.amazonaws.com", Service: "AWS/S3",
+			Detail: `CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: https response contains "NoSuchBucket"`},
 	}
 	var b strings.Builder
 	if err := Render(&b, r, "txt"); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Misconfigurations (2)\n",
+		"Misconfigurations (3)\n",
 		"  medium  dmarc         example.com  no DMARC record\n",
 		"  high    zone_transfer example.com  nameserver ns1.example.com allows zone transfers\n",
+		`  high    takeover      assets.example.com  CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: https response contains "NoSuchBucket"` + "\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("txt missing %q in:\n%s", want, b.String())
@@ -279,5 +245,13 @@ func TestRenderMisconfigs(t *testing.T) {
 	}
 	if want := "misconfig,example.com,,,dmarc,medium: no DMARC record"; !strings.Contains(b.String(), want) {
 		t.Errorf("csv missing %q in:\n%s", want, b.String())
+	}
+
+	// A check that found nothing still says so.
+	r.Misconfigurations, r.Stages = nil, []asm.Stage{asm.StageMisconfig}
+	b.Reset()
+	_ = Render(&b, r, "txt")
+	if !strings.Contains(b.String(), "Misconfigurations (0)") {
+		t.Errorf("txt:\n%s", b.String())
 	}
 }

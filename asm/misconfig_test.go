@@ -112,6 +112,9 @@ func testZone(t *testing.T, records []string, allowAXFR bool) string {
 		}
 		m := new(miekgdns.Msg)
 		m.SetReply(r)
+		if !strings.HasSuffix(strings.ToLower(q.Name), "example.com.") {
+			m.SetRcode(r, miekgdns.RcodeNameError) // outside the zone: doesn't exist
+		}
 		for _, rr := range rrs {
 			h := rr.Header()
 			if strings.EqualFold(h.Name, q.Name) && h.Rrtype == q.Qtype {
@@ -148,8 +151,12 @@ func TestCheckMisconfigs(t *testing.T) {
 	axfrPort = port
 
 	s := New(Options{Resolvers: []string{"udp:" + addr}})
-	// shop.example.com receives mail and has no SPF.
-	records := []DNSRecord{{Host: "shop.example.com", Type: "MX", Value: "mx.example.net"}}
+	// shop.example.com receives mail and has no SPF; promo.example.com's CNAME
+	// target outside the zone doesn't exist.
+	records := []DNSRecord{
+		{Host: "shop.example.com", Type: "MX", Value: "mx.example.net"},
+		{Host: "promo.example.com", Type: "CNAME", Value: "promo.gone-agency.example"},
+	}
 	got, err := s.checkMisconfigs(t.Context(), "example.com", records)
 	if err != nil {
 		t.Fatal(err)
@@ -158,12 +165,14 @@ func TestCheckMisconfigs(t *testing.T) {
 	for _, m := range got {
 		lines = append(lines, fmt.Sprintf("%s %s %s: %s", m.Host, m.Check, m.Severity, m.Detail))
 	}
+	// Most severe first; within a severity, in check order.
 	want := []string{
+		"example.com zone_transfer high: nameserver 127.0.0.1 allows zone transfers (AXFR): anyone can list all 6 records",
 		`example.com spf medium: SPF ends in ?all (neutral), which doesn't reject spoofed mail: "v=spf1 include:_spf.example.net ?all"`,
 		"shop.example.com spf medium: no SPF record: anyone can send mail as this domain",
 		`example.com dmarc medium: DMARC policy is p=none, which only monitors and doesn't stop spoofed mail: "v=DMARC1; p=none"`,
+		"promo.example.com takeover medium: CNAME promo.gone-agency.example does not exist (NXDOMAIN); check whether it can be registered or claimed",
 		"example.com caa low: no CAA record: any certificate authority may issue certificates for the domain",
-		"example.com zone_transfer high: nameserver 127.0.0.1 allows zone transfers (AXFR): anyone can list all 6 records",
 	}
 	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))

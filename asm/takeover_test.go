@@ -96,31 +96,20 @@ func TestFindTakeovers(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("risks = %+v", got)
 	}
-	byHost := map[string]TakeoverRisk{}
+	byHost := map[string]Misconfiguration{}
 	for _, r := range got {
-		byHost[r.Host] = r
+		byHost[r.host] = r.misconfig()
 	}
-	if r := byHost[bucketHost]; r.Service != "AWS/S3" || r.Severity != "high" ||
-		r.Evidence != `http response contains "The specified bucket does not exist"` {
+	if r := byHost[bucketHost]; r.Check != "takeover" || r.Service != "AWS/S3" || r.Severity != "high" ||
+		r.Detail != `CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: http response contains "The specified bucket does not exist"` {
 		t.Errorf("S3 = %+v", r)
 	}
-	if r := byHost["app.example.com"]; r.Service != "Microsoft Azure" || r.Severity != "high" || r.CNAME != "old-app.azurewebsites.net" {
+	if r := byHost["app.example.com"]; r.Service != "Microsoft Azure" || r.Severity != "high" || r.CNAME != "old-app.azurewebsites.net" ||
+		r.Detail != "CNAME old-app.azurewebsites.net (Microsoft Azure) looks unclaimed: target does not exist (NXDOMAIN)" {
 		t.Errorf("Azure = %+v", r)
 	}
-	if r := byHost["promo.example.com"]; r.Service != "" || r.Severity != "medium" {
+	if r := byHost["promo.example.com"]; r.Service != "" || r.Severity != "medium" ||
+		r.Detail != "CNAME promo.gone-agency.example does not exist (NXDOMAIN); check whether it can be registered or claimed" {
 		t.Errorf("unknown = %+v", r)
-	}
-}
-
-func TestCompareTakeovers(t *testing.T) {
-	risk := func(host string) TakeoverRisk { return TakeoverRisk{Host: host, CNAME: host + ".s3.amazonaws.com"} }
-	prev := &Result{Stages: []Stage{StageTakeover}, Takeovers: []TakeoverRisk{risk("old"), risk("same")}}
-	cur := &Result{Stages: []Stage{StageTakeover}, Takeovers: []TakeoverRisk{risk("same"), risk("new")}}
-	d := Compare(prev, cur).Takeovers
-	if !d.Compared || len(d.Added) != 1 || d.Added[0].Host != "new" || len(d.Removed) != 1 || d.Removed[0].Host != "old" {
-		t.Errorf("diff = %+v", d)
-	}
-	if d := Compare(&Result{Stages: []Stage{StageDNS}}, cur); d.Takeovers.Compared || !d.Empty() {
-		t.Errorf("diff = %+v", d.Takeovers)
 	}
 }
