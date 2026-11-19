@@ -41,6 +41,8 @@ Output:
   --subdomain-brute-force
                         after subfinder, also try each label of a wordlist
                         as <label>.<domain> (one DNS query per label)
+  --cloud-storage       also look for public AWS S3, Google Cloud and Azure
+                        buckets named after the domain (guesses names)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
@@ -119,6 +121,7 @@ Findings are listed most severe first.
 | `tls_cipher` | A broken cipher negotiated: RC4, DES/3DES, NULL, export grade, anonymous or MD5 (high). |
 | `cert_expired`, `cert_expiring` | A certificate that has expired (high) or expires within 30 days. |
 | `cert_self_signed`, `cert_mismatch` | A self-signed certificate, or one that doesn't cover the host. |
+| `public_bucket` | With `--cloud-storage`: an AWS S3, Google Cloud Storage or Azure Blob container named after the domain that anyone can list (high). |
 
 - Works from the DNS stage's records. It also sends one AXFR attempt per
   nameserver of the root domain, and HTTP requests only to subdomains whose
@@ -132,6 +135,11 @@ Findings are listed most severe first.
   (`--skip certs` turns them off). It probes port 443 on every host, plus
   ports where the port scan or web stage saw TLS. Only the version and cipher
   each endpoint negotiates are checked, not every one it accepts.
+- `--cloud-storage` guesses names from the domain and common words
+  (`example-backups`, `static-example`, `examplecom-dev`...): about 250
+  anonymous requests to S3, Google Cloud and Azure, plus 10 container
+  guesses per Azure account that exists. It reads listings only, never objects. A bucket named after
+  you may belong to someone else, so check its owner before acting.
 - DKIM isn't checked: its records live under selector names that can't be
   listed, so a missing key can't be told apart from an unknown selector.
 - Turn it off with `--skip misconfig`.

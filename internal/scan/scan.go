@@ -26,6 +26,7 @@ type Params struct {
 	SkipCerts           bool
 	SkipWeb             bool
 	SkipMisconfig       bool
+	CloudStorage        bool   // check for public buckets named after the domain
 	SubdomainBruteforce bool   // brute-force subdomains after subfinder
 	SubdomainWordlist   string // wordlist for SubdomainBruteforce; empty = the built-in top 5,000
 	Ports               bool   // run the port scan
@@ -66,6 +67,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		SkipCerts:               p.SkipCerts,
 		SkipWeb:                 p.SkipWeb,
 		SkipMisconfig:           p.SkipMisconfig,
+		CloudStorage:            p.CloudStorage,
 		PortScan:                p.Ports,
 		PortScanType:            portType,
 		PortScanPorts:           p.PortSpec,
@@ -119,6 +121,9 @@ var ErrWordlistNeedsBruteforce = errors.New("a subdomain wordlist requires subdo
 func (p Params) Validate() error {
 	if p.SubdomainWordlist != "" && !p.SubdomainBruteforce {
 		return ErrWordlistNeedsBruteforce
+	}
+	if p.CloudStorage && p.SkipMisconfig {
+		return asm.ErrCloudStorageNeedsMisconfig
 	}
 	if p.Vulns && !p.Services && p.SkipWeb {
 		return ErrVulnsNeedInput

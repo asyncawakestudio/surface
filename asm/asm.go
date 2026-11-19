@@ -163,6 +163,11 @@ type Options struct {
 	SkipCerts bool
 	// SkipMisconfig disables the DNS, email and subdomain takeover checks.
 	SkipMisconfig bool
+	// CloudStorage adds a check to the misconfig stage for AWS S3, Google
+	// Cloud Storage and Azure Blob Storage buckets named after the domain
+	// ("example-backups") that anyone can list. Off by default: it guesses
+	// names, sending a few hundred requests to the providers.
+	CloudStorage bool
 	// SkipWeb disables the web stage (HTTP probing via httpx).
 	SkipWeb bool
 	// WebPorts are the ports the web stage probes when there is no port scan.
@@ -317,6 +322,9 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	}
 	// Check service detection up front rather than after minutes of
 	// enumeration: naabu itself only warns and skips it without probes.
+	if s.opts.CloudStorage && s.opts.SkipMisconfig {
+		return nil, ErrCloudStorageNeedsMisconfig
+	}
 	if s.opts.VulnLookup && !s.opts.ServiceDetection && s.opts.SkipWeb {
 		return nil, ErrVulnLookupNeedsServices
 	}

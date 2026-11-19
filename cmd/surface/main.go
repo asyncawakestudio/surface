@@ -68,6 +68,8 @@ Output:
   --subdomain-brute-force
                         after subfinder, also try each label of a wordlist
                         as <label>.<domain> (one DNS query per label)
+  --cloud-storage       also look for public AWS S3, Google Cloud and Azure
+                        buckets named after the domain (guesses names)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
@@ -110,6 +112,7 @@ func runScan(args []string) int {
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
+		cloud     = fs.Bool("cloud-storage", false, "look for public cloud storage buckets named after the domain")
 		brute     = fs.Bool("subdomain-brute-force", false, "brute-force subdomains from a wordlist after subfinder")
 		wordlist  = fs.String("subdomain-wordlist", "", "wordlist for --subdomain-brute-force (default: built-in top 5,000)")
 		resolvers = fs.String("resolvers", "", "comma-separated DNS resolvers")
@@ -160,6 +163,7 @@ func runScan(args []string) int {
 		PDCPAPIKey:          *pdcpKey,
 		IPInfoToken:         *ipToken,
 		SubfinderCfg:        *sfConfig,
+		CloudStorage:        *cloud,
 		SubdomainBruteforce: *brute,
 		SubdomainWordlist:   *wordlist,
 	}
