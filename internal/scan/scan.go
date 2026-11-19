@@ -16,7 +16,7 @@ import (
 )
 
 // Params are the knobs both front-ends expose. By default subdomains, dns,
-// ipdr, web and certs run; the port scan is opt-in (Ports) because it probes every
+// ipdr, takeover, web and certs run; the port scan is opt-in (Ports) because it probes every
 // resolved IP, including third-party infrastructure. Set the Skip* fields to
 // turn stages off. Zero values elsewhere mean "default", except Domain which
 // is required.
@@ -25,6 +25,7 @@ type Params struct {
 	SkipIPDR      bool
 	SkipCerts     bool
 	SkipWeb       bool
+	SkipTakeover  bool
 	Ports         bool   // run the port scan
 	PortType      string // "connect" (default) or "syn"
 	PortSpec      string // naabu port spec, e.g. "-", "1-1000", "80,443"
@@ -60,6 +61,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		SkipIPDR:                p.SkipIPDR,
 		SkipCerts:               p.SkipCerts,
 		SkipWeb:                 p.SkipWeb,
+		SkipTakeover:            p.SkipTakeover,
 		PortScan:                p.Ports,
 		PortScanType:            portType,
 		PortScanPorts:           p.PortSpec,
@@ -76,7 +78,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 // StageNames are the stages a caller may skip. subdomains and dns are
 // foundational (everything depends on them) and cannot be skipped; ports is
 // off unless requested.
-var StageNames = []string{"ipdr", "web", "certs"}
+var StageNames = []string{"ipdr", "takeover", "web", "certs"}
 
 // ApplySkips sets the Skip* fields from stage names, returning an error for an
 // unknown or non-skippable name.
@@ -89,6 +91,8 @@ func (p *Params) ApplySkips(names []string) error {
 			p.SkipCerts = true
 		case "web":
 			p.SkipWeb = true
+		case "takeover":
+			p.SkipTakeover = true
 		case "ports":
 			return fmt.Errorf("the port scan is off by default; there is no need to skip it")
 		default:

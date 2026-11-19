@@ -53,7 +53,7 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default these stages run: subdomains, dns, ipdr, web, certs. The port scan is
+By default these stages run: subdomains, dns, ipdr, takeover, web, certs. The port scan is
 opt-in (--ports) since it probes every IP the domain resolves to, including
 hosting and CDN infrastructure you may not own.
 
@@ -62,7 +62,8 @@ Output:
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, web, certs
+  --skip <stages>       comma-separated stages to skip: ipdr, takeover, web,
+                        certs
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
@@ -99,7 +100,7 @@ func runScan(args []string) int {
 	fs.Usage = usage
 	var (
 		outDest   = fs.String("output", "", "output destination: a file path (format by extension) or a format name; empty = txt to stdout")
-		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, web, certs")
+		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, takeover, web, certs")
 		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")

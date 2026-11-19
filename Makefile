@@ -1,7 +1,7 @@
 GOFLAGS ?=
 DOMAIN  ?= example.com
 
-.PHONY: build install test test-integration run clean fmt vet
+.PHONY: build install test test-integration run clean fmt vet update-fingerprints
 
 build: ## Build the CLI and MCP binaries into ./bin
 	go build $(GOFLAGS) -o bin/surface ./cmd/surface
@@ -30,3 +30,8 @@ run: build ## Build then scan DOMAIN=<domain>
 
 clean:
 	rm -rf bin
+
+# Refresh the subdomain takeover fingerprints (see asm/data/README.md).
+update-fingerprints:
+	curl -fsSL -o asm/data/takeover-fingerprints.json \
+		https://raw.githubusercontent.com/EdOverflow/can-i-take-over-xyz/master/fingerprints.json

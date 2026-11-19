@@ -26,7 +26,7 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default these stages run: subdomains, dns, ipdr, web, certs. The port scan is
+By default these stages run: subdomains, dns, ipdr, takeover, web, certs. The port scan is
 opt-in (--ports) since it probes every IP the domain resolves to, including
 hosting and CDN infrastructure you may not own.
 
@@ -35,7 +35,8 @@ Output:
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, web, certs
+  --skip <stages>       comma-separated stages to skip: ipdr, takeover, web,
+                        certs
                         (subdomains and dns are always run)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
@@ -80,6 +81,25 @@ and CPEs (CPE 2.3, the identifiers vulnerability databases use).
   is missing.
 - **Intrusive:** sends protocol probes to every open port, not just a
   connection attempt.
+
+### Subdomain takeover (on by default)
+
+Flags subdomains whose CNAME points at a third-party resource nobody owns any
+more (a deleted S3 bucket, Azure app...), which someone else could claim to
+serve content on the subdomain.
+
+- **high:** the CNAME belongs to a service known to allow takeovers and its
+  "unclaimed" sign matched: the target doesn't exist, or the page shows the
+  service's error (e.g. `The specified bucket does not exist`).
+- **medium:** the CNAME target doesn't exist and matches no known service.
+- Uses the CNAMEs the DNS stage found. It requests only subdomains whose
+  CNAME names a known service, without verifying certificates (an unclaimed
+  resource shows the provider's).
+- Fingerprints come from
+  [can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz)
+  (CC BY 4.0); `make update-fingerprints` refreshes them. Services it lists
+  as edge cases, such as GitHub Pages and Heroku, are at most medium.
+- Turn it off with `--skip takeover`.
 
 ### Web (on by default)
 
@@ -150,6 +170,7 @@ scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceD
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
 // res.Services(): every identified service with its IP, hosts and port
+// res.Takeovers: subdomains whose CNAME points at an unclaimed resource
 // res.Web: what each host serves over HTTP(S), with detected technologies
 // res.Vulnerabilities: with VulnLookup, the CVEs affecting each service and technology
 ```
@@ -157,8 +178,8 @@ res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
 `"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
 changed between scans): subdomains, DNS records, IP data, certificates, open ports,
-service versions, web pages and CVEs. Ports, web pages and CVEs are only compared when
-both scans looked for them (`Result.Stages`).
+service versions, web pages, takeover risks and CVEs. Ports, web pages, takeover risks
+and CVEs are only compared when both scans looked for them (`Result.Stages`).
 
 ## Building
 
