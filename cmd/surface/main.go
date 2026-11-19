@@ -53,23 +53,25 @@ Usage:
   surface [flags] <domain>
   surface version
 
-By default these stages run: subdomains, dns, ipdr, misconfig, web, certs.
-The port scan is opt-in (--ports) since it probes every IP the domain resolves
-to, including hosting and CDN infrastructure you may not own.
+By default these stages run: subdomains, dns, ipdr, cloud, misconfig, web,
+certs. The port scan is opt-in (--ports) since it probes every IP the domain
+resolves to, including hosting and CDN infrastructure you may not own.
 
 Output:
   --output <dest>       where/how to write results (default: txt to stdout).
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, misconfig, web,
-                        certs
+  --skip <stages>       comma-separated stages to skip: ipdr, cloud,
+                        misconfig, web, certs
                         (subdomains and dns are always run)
   --subdomain-brute-force
                         after subfinder, also try each label of a wordlist
                         as <label>.<domain> (one DNS query per label)
   --cloud-storage       also look for public AWS S3, Google Cloud and Azure
                         buckets named after the domain (guesses names)
+  --cloud-services      also look for Azure, Google Cloud, Microsoft 365 and
+                        Okta resources named after the domain (guesses names)
   --ports               also run the port scan (all 65535 TCP ports by default)
                         (not available in Windows ARM64 builds)
   --services            with --ports, identify the service on each open port
@@ -107,12 +109,13 @@ func runScan(args []string) int {
 	fs.Usage = usage
 	var (
 		outDest   = fs.String("output", "", "output destination: a file path (format by extension) or a format name; empty = txt to stdout")
-		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, misconfig, web, certs")
+		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, cloud, misconfig, web, certs")
 		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
 		cloud     = fs.Bool("cloud-storage", false, "look for public cloud storage buckets named after the domain")
+		cloudSvcs = fs.Bool("cloud-services", false, "look for cloud resources named after the domain")
 		brute     = fs.Bool("subdomain-brute-force", false, "brute-force subdomains from a wordlist after subfinder")
 		wordlist  = fs.String("subdomain-wordlist", "", "wordlist for --subdomain-brute-force (default: built-in top 5,000)")
 		resolvers = fs.String("resolvers", "", "comma-separated DNS resolvers")
@@ -164,6 +167,7 @@ func runScan(args []string) int {
 		IPInfoToken:         *ipToken,
 		SubfinderCfg:        *sfConfig,
 		CloudStorage:        *cloud,
+		CloudServices:       *cloudSvcs,
 		SubdomainBruteforce: *brute,
 		SubdomainWordlist:   *wordlist,
 	}
