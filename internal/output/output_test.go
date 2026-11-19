@@ -224,16 +224,18 @@ func TestRenderMisconfigs(t *testing.T) {
 		{Host: "example.com", Check: "zone_transfer", Severity: "high", Detail: "nameserver ns1.example.com allows zone transfers"},
 		{Host: "assets.example.com", Check: "takeover", Severity: "high", CNAME: "assets-old.s3.amazonaws.com", Service: "AWS/S3",
 			Detail: `CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: https response contains "NoSuchBucket"`},
+		{Host: "www.example.com", Port: 8443, Check: "cert_expiring", Severity: "medium", Detail: "certificate for www.example.com expires on 2026-12-01"},
 	}
 	var b strings.Builder
 	if err := Render(&b, r, "txt"); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Misconfigurations (3)\n",
-		"  medium  dmarc         example.com  no DMARC record\n",
-		"  high    zone_transfer example.com  nameserver ns1.example.com allows zone transfers\n",
-		`  high    takeover      assets.example.com  CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: https response contains "NoSuchBucket"` + "\n",
+		"Misconfigurations (4)\n",
+		"  medium  dmarc            example.com  no DMARC record\n",
+		"  high    zone_transfer    example.com  nameserver ns1.example.com allows zone transfers\n",
+		"  medium  cert_expiring    www.example.com:8443  certificate for www.example.com expires on 2026-12-01\n",
+		`  high    takeover         assets.example.com  CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: https response contains "NoSuchBucket"` + "\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("txt missing %q in:\n%s", want, b.String())
@@ -243,8 +245,13 @@ func TestRenderMisconfigs(t *testing.T) {
 	if err := Render(&b, r, "csv"); err != nil {
 		t.Fatal(err)
 	}
-	if want := "misconfig,example.com,,,dmarc,medium: no DMARC record"; !strings.Contains(b.String(), want) {
-		t.Errorf("csv missing %q in:\n%s", want, b.String())
+	for _, want := range []string{
+		"misconfig,example.com,,,dmarc,medium: no DMARC record",
+		"misconfig,www.example.com,,8443,cert_expiring,medium: certificate for www.example.com expires on 2026-12-01",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("csv missing %q in:\n%s", want, b.String())
+		}
 	}
 
 	// A check that found nothing still says so.
