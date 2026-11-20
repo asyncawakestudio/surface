@@ -1,8 +1,6 @@
 name: Go Lang
 
 on:
-  push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -10,7 +8,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   test:
