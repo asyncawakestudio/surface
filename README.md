@@ -12,12 +12,9 @@ Download `surface` and `surface-mcp` for your platform from
 from source (Go 1.27.3+; older Go versions download it automatically):
 
 ```sh
-go install -trimpath -ldflags="-s -w" github.com/asyncawakestudio/surface/cmd/surface@latest
-go install -trimpath -ldflags="-s -w" github.com/asyncawakestudio/surface/cmd/surface-mcp@latest
+go install github.com/asyncawakestudio/surface/cmd/surface@latest
+go install github.com/asyncawakestudio/surface/cmd/surface-mcp@latest
 ```
-
-`-trimpath -ldflags="-s -w"` leaves out debug information, as release builds
-do, which makes the binaries about a fifth smaller.
 
 ## CLI
 
