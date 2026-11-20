@@ -1,5 +1,6 @@
 // Package output renders an asm.Result in the formats the CLI supports:
-// txt (human report), json (full fidelity), and csv/xml (flat, tabular).
+// txt (one line per finding, in the style of ProjectDiscovery's tools), json
+// (full fidelity), and csv/xml (flat, tabular).
 package output
 
 import (
@@ -8,11 +9,11 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/asyncawakestudio/surface/asm"
+	"github.com/asyncawakestudio/surface/internal/termui"
 )
 
 // Formats lists the valid output formats (the CLI's --output values).
@@ -28,11 +29,22 @@ func Valid(format string) bool {
 	return false
 }
 
-// Render writes r to w in the given format.
+// Options tune rendering.
+type Options struct {
+	// Color colours the txt report with ANSI escapes, for a terminal.
+	Color bool
+}
+
+// Render writes r to w in the given format, without colour.
 func Render(w io.Writer, r *asm.Result, format string) error {
+	return RenderWith(w, r, format, Options{})
+}
+
+// RenderWith writes r to w in the given format.
+func RenderWith(w io.Writer, r *asm.Result, format string, opts Options) error {
 	switch format {
 	case "txt":
-		return renderText(w, r)
+		return renderText(w, r, termui.Palette{On: opts.Color})
 	case "json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -157,114 +169,121 @@ func renderXML(w io.Writer, r *asm.Result) error {
 
 // --- human report ---
 
-func renderText(w io.Writer, r *asm.Result) error {
-	p := func(format string, a ...any) { fmt.Fprintf(w, format, a...) }
+// renderText writes one line per finding, ProjectDiscovery style: the kind
+// of finding in brackets, what it is about, then its details in brackets,
+// e.g. "[web] https://example.com [200] [Home] [Nginx:1.18.0]". Empty details
+// are left out, so every line can be grepped by its kind.
+func renderText(w io.Writer, r *asm.Result, c termui.Palette) error {
+	bw := &errWriter{w: w}
+	line := func(kind, subject string, details ...string) {
+		var b strings.Builder
+		b.WriteString("[" + c.Blue(kind) + "] " + subject)
+		for _, d := range details {
+			if d != "" {
+				b.WriteString(" [" + d + "]")
+			}
+		}
+		b.WriteByte('\n')
+		bw.write(b.String())
+	}
 
-	p("\nSurface report for %s\n%s\n", r.Domain, strings.Repeat("=", 40))
-
-	p("\nSubdomains (%d)\n", len(r.Subdomains))
 	for _, s := range r.Subdomains {
-		tag := ""
+		carried := ""
 		if s.CarriedOver {
-			tag = "  [carried over]"
+			carried = c.Gray("carried over")
 		}
-		p("  %s%s\n", s.Host, tag)
+		line("subdomain", s.Host, c.Cyan(strings.Join(s.Sources, ",")), carried)
 	}
-
-	p("\nDNS records (%d)\n", len(r.DNSRecords))
 	for _, d := range r.DNSRecords {
-		p("  %-40s %-6s %s\n", d.Host, d.Type, d.Value)
+		line("dns", d.Host, c.Magenta(d.Type), c.Cyan(d.Value))
 	}
-
-	if len(r.ZoneTransfers) > 0 {
-		p("\nZone transfers (%d)\n", len(r.ZoneTransfers))
-		for _, z := range r.ZoneTransfers {
-			p("  %s  %d records\n", z.Nameserver, z.Records)
-		}
+	for _, z := range r.ZoneTransfers {
+		line("zone-transfer", r.Domain, c.Cyan(z.Nameserver), c.Red(fmt.Sprintf("%d records", z.Records)))
 	}
-
-	p("\nIPDR (%d)\n", len(r.IPInfo))
 	for _, i := range r.IPInfo {
 		if i.Error != "" {
-			p("  %-18s error: %s\n", i.IP, i.Error)
+			line("ipdr", i.IP, c.Red("error: "+i.Error))
 			continue
 		}
-		p("  %-18s %s\n", i.IP, summarizeIPInfo(i.Data))
-	}
-
-	if len(r.CloudAssets) > 0 {
-		width := 0
-		for _, a := range r.CloudAssets {
-			width = max(width, len(a.Host))
+		var details []string
+		for _, v := range ipInfoFields(i.Data) {
+			details = append(details, c.Cyan(v))
 		}
-		p("\nCloud (%d)\n", len(r.CloudAssets))
-		for _, a := range r.CloudAssets {
-			label := cloudLabel(a)
-			if a.Region != "" {
-				label += " " + a.Region
+		line("ipdr", i.IP, details...)
+	}
+	for _, a := range r.CloudAssets {
+		line("cloud", a.Host, c.Cyan(cloudLabel(a)), c.Cyan(a.Region), c.Gray(a.Evidence))
+	}
+	for _, idp := range r.Identity {
+		var tenant, region, auth string
+		if idp.TenantID != "" {
+			tenant = c.Cyan("tenant " + idp.TenantID)
+		}
+		region = c.Cyan(idp.TenantRegion)
+		switch {
+		case idp.Authentication == "federated" && idp.AuthURL != "":
+			auth = c.Yellow("federated " + idp.AuthURL)
+		case idp.Authentication != "":
+			auth = c.Cyan(idp.Authentication)
+		}
+		domains := ""
+		if len(idp.Domains) > 0 {
+			domains = c.Cyan(truncateList(idp.Domains, 10))
+		}
+		line("identity", idp.Domain, c.Green(idp.Provider), tenant, region, auth, c.Cyan(idp.URL), domains, c.Gray(idp.Evidence))
+	}
+	for _, b := range r.PublicBuckets {
+		line("bucket", b.URL, c.Cyan(b.Provider), c.Red(fmt.Sprintf("%d objects listed", b.Objects)))
+	}
+	for _, ps := range r.PortScans {
+		for _, pt := range ps.Ports {
+			service := ""
+			if pt.Service != nil {
+				service = c.Cyan(serviceSummary(*pt.Service))
 			}
-			p("  %-*s  %s  [%s]\n", width, a.Host, label, a.Evidence)
+			line("port", fmt.Sprintf("%s:%d", ps.IP, pt.Port), c.Gray(pt.Protocol), service)
 		}
 	}
+	for _, wp := range r.Web {
+		tech := techList(wp.Technologies)
+		if tech == "" {
+			tech = wp.WebServer
+		}
+		title := ""
+		if wp.Title != "" {
+			title = c.Yellow(wp.Title)
+		}
+		line("web", wp.URL, c.Status(wp.StatusCode), c.Gray(wp.Location), title, c.Cyan(tech), c.Magenta(wp.CDN))
+	}
+	for _, sv := range r.Vulnerabilities {
+		for _, v := range sv.Vulnerabilities {
+			line("vuln", fmt.Sprintf("%s:%d", sv.IP, sv.Port),
+				c.Bold(v.ID), c.Severity(v.Severity), fmt.Sprintf("%.1f", v.CVSSScore),
+				c.Cyan(serviceSummary(sv.Service)), c.Red(vulnFlagList(v)), vulnTitle(v))
+		}
+	}
+	for _, crt := range r.TLSCerts {
+		expires := ""
+		if !crt.NotAfter.IsZero() {
+			expires = "expires " + crt.NotAfter.Format("2006-01-02")
+		}
+		line("cert", fmt.Sprintf("%s:%d", crt.Host, crt.Port),
+			c.Cyan(crt.SubjectCN), c.Gray("issuer: "+crt.IssuerCN), c.Gray(expires), c.Red(certFlagList(crt)))
+	}
+	return bw.err
+}
 
-	if len(r.Identity) > 0 {
-		p("\nIdentity (%d)\n", len(r.Identity))
-		for _, idp := range r.Identity {
-			p("  %s  %s\n", idp.Provider, identitySummary(idp))
-			if len(idp.Domains) > 0 {
-				p("    tenant domains (%d): %s\n", len(idp.Domains), truncateList(idp.Domains, 10))
-			}
-		}
-	}
+// errWriter keeps the first write error, so the report can be written line
+// by line and checked once.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
 
-	if len(r.PublicBuckets) > 0 || slices.Contains(r.Stages, asm.StageCloudStorage) {
-		p("\nPublic buckets (%d)\n", len(r.PublicBuckets))
-		for _, b := range r.PublicBuckets {
-			p("  %-20s  %s  %d objects listed\n", b.Provider, b.URL, b.Objects)
-		}
+func (e *errWriter) write(s string) {
+	if e.err == nil {
+		_, e.err = io.WriteString(e.w, s)
 	}
-
-	if len(r.PortScans) > 0 {
-		p("\nOpen ports\n")
-		for _, ps := range r.PortScans {
-			ports := make([]string, len(ps.Ports))
-			for j, pt := range ps.Ports {
-				ports[j] = fmt.Sprintf("%d/%s", pt.Port, pt.Protocol)
-				if pt.Service != nil {
-					ports[j] += " (" + serviceSummary(*pt.Service) + ")"
-				}
-			}
-			p("  %-18s %s\n", ps.IP, strings.Join(ports, ", "))
-		}
-	}
-
-	if len(r.Web) > 0 {
-		width := 0
-		for _, wp := range r.Web {
-			width = max(width, len(wp.URL))
-		}
-		p("\nWeb (%d)\n", len(r.Web))
-		for _, wp := range r.Web {
-			p("  %-*s  %s\n", width, wp.URL, webSummary(wp))
-		}
-	}
-
-	if len(r.Vulnerabilities) > 0 {
-		p("\nVulnerabilities\n")
-		for _, sv := range r.Vulnerabilities {
-			p("  %s:%d%s  %s (%d CVEs)\n", sv.IP, sv.Port, hostsSuffix(sv.Hosts), serviceSummary(sv.Service), len(sv.Vulnerabilities))
-			for _, v := range sv.Vulnerabilities {
-				p("    %-16s %-8s %4.1f  %s%s\n", v.ID, v.Severity, v.CVSSScore, vulnTitle(v), vulnFlags(v))
-			}
-		}
-	}
-
-	p("\nTLS certificates (%d)\n", len(r.TLSCerts))
-	for _, c := range r.TLSCerts {
-		p("  %s:%d  %s  (issuer: %s)%s\n", c.Host, c.Port, c.SubjectCN, c.IssuerCN, flagSuffix(c))
-	}
-	p("\n")
-	return nil
 }
 
 // serviceSummary is a short label for the txt report, e.g. "ssh OpenSSH 8.9p1".
@@ -318,30 +337,6 @@ func cloudDetails(a asm.CloudAsset) string {
 	return strings.Join(parts, "; ")
 }
 
-// identitySummary is an identity provider's line in the txt report, e.g.
-// "tenant 0e7f... (EU), federated: https://adfs.example.com/adfs/ls/".
-func identitySummary(idp asm.IdentityProvider) string {
-	var parts []string
-	if idp.TenantID != "" {
-		t := "tenant " + idp.TenantID
-		if idp.TenantRegion != "" {
-			t += " (" + idp.TenantRegion + ")"
-		}
-		parts = append(parts, t)
-	}
-	switch {
-	case idp.Authentication == "federated" && idp.AuthURL != "":
-		parts = append(parts, "federated: "+idp.AuthURL)
-	case idp.Authentication != "":
-		parts = append(parts, idp.Authentication)
-	}
-	if idp.URL != "" {
-		parts = append(parts, idp.URL)
-	}
-	parts = append(parts, "["+idp.Evidence+"]")
-	return strings.Join(parts, ", ")
-}
-
 // identityDetails is the value of a csv/xml identity row.
 func identityDetails(idp asm.IdentityProvider) string {
 	var parts []string
@@ -369,27 +364,6 @@ func truncateList(items []string, n int) string {
 	return fmt.Sprintf("%s +%d more", strings.Join(items[:n], ", "), len(items)-n)
 }
 
-// webSummary is a page's line in the txt report, e.g.
-// `200  "Home"  Nginx 1.18.0 · WordPress 6.4.1  [cloudflare]`.
-func webSummary(wp asm.WebPage) string {
-	parts := []string{strconv.Itoa(wp.StatusCode)}
-	if wp.Location != "" {
-		parts = append(parts, "→ "+wp.Location)
-	}
-	if wp.Title != "" {
-		parts = append(parts, strconv.Quote(wp.Title))
-	}
-	if techs := techNames(wp.Technologies); techs != "" {
-		parts = append(parts, techs)
-	} else if wp.WebServer != "" {
-		parts = append(parts, wp.WebServer)
-	}
-	if wp.CDN != "" {
-		parts = append(parts, "["+wp.CDN+"]")
-	}
-	return strings.Join(parts, "  ")
-}
-
 // webDetails is the value of a csv/xml web row.
 func webDetails(wp asm.WebPage) string {
 	parts := []string{fmt.Sprintf("status=%d", wp.StatusCode)}
@@ -406,6 +380,18 @@ func webDetails(wp asm.WebPage) string {
 	return strings.Join(parts, "; ")
 }
 
+// techList lists technologies as "Name:Version,Name", as httpx does.
+func techList(techs []asm.Technology) string {
+	names := make([]string, len(techs))
+	for i, t := range techs {
+		names[i] = t.Name
+		if t.Version != "" {
+			names[i] += ":" + t.Version
+		}
+	}
+	return strings.Join(names, ",")
+}
+
 // techNames lists technologies as "Name Version · Name".
 func techNames(techs []asm.Technology) string {
 	names := make([]string, len(techs))
@@ -413,18 +399,6 @@ func techNames(techs []asm.Technology) string {
 		names[i] = strings.TrimSpace(t.Name + " " + t.Version)
 	}
 	return strings.Join(names, " · ")
-}
-
-// hostsSuffix names up to three hosts, e.g. " (a.example.com, b.example.com +2)".
-func hostsSuffix(hosts []string) string {
-	if len(hosts) == 0 {
-		return ""
-	}
-	const maxHosts = 3
-	if len(hosts) <= maxHosts {
-		return " (" + strings.Join(hosts, ", ") + ")"
-	}
-	return fmt.Sprintf(" (%s +%d)", strings.Join(hosts[:maxHosts], ", "), len(hosts)-maxHosts)
 }
 
 // vulnTitle is vulnx's short name, or the start of NVD's description.
@@ -440,8 +414,8 @@ func vulnTitle(v asm.Vulnerability) string {
 	return d
 }
 
-// vulnFlags marks what makes a CVE urgent, e.g. "  [KEV, 19 PoCs, EPSS 0.80]".
-func vulnFlags(v asm.Vulnerability) string {
+// vulnFlagList marks what makes a CVE urgent, e.g. "KEV, 19 PoCs, EPSS 0.80".
+func vulnFlagList(v asm.Vulnerability) string {
 	var f []string
 	if v.KEV {
 		f = append(f, "KEV")
@@ -455,10 +429,7 @@ func vulnFlags(v asm.Vulnerability) string {
 	if v.EPSSScore > 0 {
 		f = append(f, fmt.Sprintf("EPSS %.2f", v.EPSSScore))
 	}
-	if len(f) == 0 {
-		return ""
-	}
-	return "  [" + strings.Join(f, ", ") + "]"
+	return strings.Join(f, ", ")
 }
 
 // vulnDetails is the value of a csv/xml vuln row.
@@ -477,7 +448,16 @@ func vulnDetails(v asm.Vulnerability, cpe string) string {
 	return strings.Join(parts, "; ")
 }
 
+// flagSuffix is certFlagList as a suffix for csv/xml rows, e.g. "  [expired]".
 func flagSuffix(c asm.TLSCert) string {
+	if f := certFlagList(c); f != "" {
+		return "  [" + f + "]"
+	}
+	return ""
+}
+
+// certFlagList lists what's wrong with a certificate, e.g. "expired, self-signed".
+func certFlagList(c asm.TLSCert) string {
 	var f []string
 	if c.Expired {
 		f = append(f, "expired")
@@ -488,27 +468,22 @@ func flagSuffix(c asm.TLSCert) string {
 	if c.Mismatched {
 		f = append(f, "mismatched")
 	}
-	if len(f) == 0 {
-		return ""
-	}
-	return "  [" + strings.Join(f, ", ") + "]"
+	return strings.Join(f, ", ")
 }
 
-func summarizeIPInfo(data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
+// ipInfoFields picks the organisation and location from ipinfo data.
+func ipInfoFields(data []byte) []string {
 	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		return ""
+	if json.Unmarshal(data, &m) != nil {
+		return nil
 	}
-	var parts []string
+	var out []string
 	for _, k := range []string{"org", "city", "region", "country"} {
 		if v, ok := m[k].(string); ok && v != "" {
-			parts = append(parts, v)
+			out = append(out, v)
 		}
 	}
-	return strings.Join(parts, " · ")
+	return out
 }
 
 // bucketHost is the host part of a bucket URL.

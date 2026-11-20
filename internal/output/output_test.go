@@ -110,7 +110,7 @@ func withService() *asm.Result {
 
 func TestRenderServices(t *testing.T) {
 	cases := map[string][]string{
-		"txt": {"22/tcp (ssh OpenSSH 8.9p1)", "443/tcp (http/tls nginx)", "8080/tcp"},
+		"txt": {"[port] 1.2.3.4:22 [tcp] [ssh OpenSSH 8.9p1]\n", "[port] 1.2.3.4:443 [tcp] [http/tls nginx]\n", "[port] 1.2.3.4:8080 [tcp]\n"},
 		"csv": {
 			"port,,1.2.3.4,22,tcp,open",
 			"service,,1.2.3.4,22,ssh,product=OpenSSH; version=8.9p1; cpe=cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*",
@@ -153,9 +153,8 @@ func TestRenderVulnerabilities(t *testing.T) {
 	}}
 	cases := map[string][]string{
 		"txt": {
-			"Vulnerabilities\n  1.2.3.4:22  ssh OpenSSH 8.9p1 (2 CVEs)",
-			"CVE-2023-38408   critical  9.8  OpenSSH - Command Injection  [KEV, 19 PoCs, EPSS 0.80]",
-			"CVE-2023-51385   medium    6.5  In ssh in OpenSSH before 9.6, OS command injection might occur if a us...",
+			"[vuln] 1.2.3.4:22 [CVE-2023-38408] [critical] [9.8] [ssh OpenSSH 8.9p1] [KEV, 19 PoCs, EPSS 0.80] [OpenSSH - Command Injection]\n",
+			"[vuln] 1.2.3.4:22 [CVE-2023-51385] [medium] [6.5] [ssh OpenSSH 8.9p1] [In ssh in OpenSSH before 9.6, OS command injection might occur if a us...]\n",
 		},
 		"csv": {
 			"vuln,,1.2.3.4,22,CVE-2023-38408,severity=critical; cvss=9.8; kev; epss=0.7970; pocs=19; cpe=cpe:2.3:a:openbsd:openssh:8.9p1:*:*:*:*:*:*:*",
@@ -181,8 +180,8 @@ func TestRenderVulnerabilities(t *testing.T) {
 	if err := Render(&b, withService(), "txt"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(b.String(), "Vulnerabilities") {
-		t.Error("txt has a Vulnerabilities section without a lookup")
+	if strings.Contains(b.String(), "[vuln]") {
+		t.Error("txt has vuln lines without a lookup")
 	}
 }
 
@@ -198,9 +197,8 @@ func TestRenderWeb(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Web (2)\n",
-		"  http://blog.example.com  301  → https://blog.example.com/\n",
-		`  https://www.example.com  200  "Home"  Nginx 1.18.0 · WordPress 6.4.1  [cloudflare]` + "\n",
+		"[web] http://blog.example.com [301] [https://blog.example.com/]\n",
+		"[web] https://www.example.com [200] [Home] [Nginx:1.18.0,WordPress:6.4.1] [cloudflare]\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("txt missing %q in:\n%s", want, b.String())
@@ -226,8 +224,8 @@ func TestRenderZoneTransfersAndBuckets(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Zone transfers (1)\n  ns1.example.com  42 records\n",
-		"Public buckets (1)\n  AWS S3                https://example-backups.s3.amazonaws.com/  3 objects listed\n",
+		"[zone-transfer] example.com [ns1.example.com] [42 records]\n",
+		"[bucket] https://example-backups.s3.amazonaws.com/ [AWS S3] [3 objects listed]\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("txt missing %q in:\n%s", want, b.String())
@@ -244,15 +242,6 @@ func TestRenderZoneTransfersAndBuckets(t *testing.T) {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("csv missing %q in:\n%s", want, b.String())
 		}
-	}
-
-	// A bucket check that found nothing still says so; no zone transfers
-	// leaves the section out.
-	r.ZoneTransfers, r.PublicBuckets, r.Stages = nil, nil, []asm.Stage{asm.StageCloud, asm.StageCloudStorage}
-	b.Reset()
-	_ = Render(&b, r, "txt")
-	if !strings.Contains(b.String(), "Public buckets (0)") || strings.Contains(b.String(), "Zone transfers") {
-		t.Errorf("txt:\n%s", b.String())
 	}
 }
 
@@ -274,14 +263,12 @@ func TestRenderCloud(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Cloud (3)\n",
-		"  api.example.com                AWS EC2 us-east-1  [ip-range]\n",
-		"  example-dev.azurewebsites.net  Azure App Service  [guess]\n",
-		"  shop.example.com               Heroku  [cname]\n",
-		"Identity (2)\n",
-		"  Microsoft Entra ID  tenant 0e7f1b6a-1234-4c5d-8e9f-0123456789ab (EU), federated: https://adfs.example.com/adfs/ls/, [openid]\n",
-		"    tenant domains (11): a.example, b.example, c.example, d.example, e.example, f.example, g.example, h.example, i.example, j.example +1 more\n",
-		"  Google Workspace  [mx]\n",
+		"[cloud] api.example.com [AWS EC2] [us-east-1] [ip-range]\n",
+		"[cloud] example-dev.azurewebsites.net [Azure App Service] [guess]\n",
+		"[cloud] shop.example.com [Heroku] [cname]\n",
+		"[identity] example.com [Microsoft Entra ID] [tenant 0e7f1b6a-1234-4c5d-8e9f-0123456789ab] [EU] [federated https://adfs.example.com/adfs/ls/] " +
+			"[a.example, b.example, c.example, d.example, e.example, f.example, g.example, h.example, i.example, j.example +1 more] [openid]\n",
+		"[identity] example.com [Google Workspace] [mx]\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("txt missing %q in:\n%s", want, b.String())
@@ -298,5 +285,28 @@ func TestRenderCloud(t *testing.T) {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("csv missing %q in:\n%s", want, b.String())
 		}
+	}
+}
+
+func TestRenderTextColor(t *testing.T) {
+	r := sample()
+	r.Web = []asm.WebPage{{URL: "https://www.example.com", StatusCode: 200, Title: "Home"}}
+	var plain, color strings.Builder
+	if err := RenderWith(&plain, r, "txt", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderWith(&color, r, "txt", Options{Color: true}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plain.String(), "\x1b[") {
+		t.Error("plain output has ANSI escapes")
+	}
+	if !strings.Contains(color.String(), "[\x1b[34mweb\x1b[0m] https://www.example.com [\x1b[32m200\x1b[0m]") {
+		t.Errorf("colored output:\n%q", color.String())
+	}
+	// Colour applies to the txt report only.
+	var csv strings.Builder
+	if err := RenderWith(&csv, r, "csv", Options{Color: true}); err != nil || strings.Contains(csv.String(), "\x1b[") {
+		t.Errorf("csv with Color: %v %q", err, csv.String())
 	}
 }

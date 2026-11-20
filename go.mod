@@ -15,6 +15,7 @@ require (
 	github.com/projectdiscovery/tlsx v1.5.0
 	github.com/projectdiscovery/utils v0.11.13
 	github.com/projectdiscovery/wappalyzergo v0.2.96
+	golang.org/x/term v0.47.0
 )
 
 require (
@@ -161,7 +162,6 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect

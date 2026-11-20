@@ -55,7 +55,9 @@ Output:
   --vulns               look up the CVEs affecting each detected service's
                         and web technology's version (NVD), with exploitation
                         data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs)
-  --quiet               suppress progress logging on stderr
+  --quiet               suppress the banner and progress logging on stderr
+  --no-color            don't colour the output (also: NO_COLOR=1); output
+                        that isn't a terminal is never coloured
 
 Tuning (all optional):
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
@@ -77,6 +79,24 @@ API keys, from the environment only (all optional):
   IPINFO_TOKEN              ipinfo.io
   NVD_API_KEY               NVD, for --vulns: 10x higher rate limit
   PDCP_API_KEY              ProjectDiscovery Cloud, for --vulns
+```
+
+The txt report prints one line per finding, the kind first, then the details
+in brackets, so it can be grepped (`surface example.com | grep '^\[web\]'`).
+On a terminal it's coloured; progress goes to stderr:
+
+```
+[INF] Enumerating subdomains for example.com
+[INF] Found 3 subdomains, 9 DNS records, 2 cloud assets, 2 web pages, 2 certificates in 41s
+[subdomain] www.example.com [crtsh,virustotal]
+[dns] www.example.com [A] [203.0.113.5]
+[dns] _dmarc.example.com [TXT] [v=DMARC1; p=reject]
+[cloud] www.example.com [AWS CloudFront] [cname]
+[identity] example.com [Microsoft Entra ID] [tenant 0e7f1b6a-...] [EU] [managed] [openid]
+[port] 203.0.113.5:443 [tcp] [http/tls nginx 1.25.3]
+[web] https://www.example.com [200] [Example] [Nginx:1.25.3,WordPress:6.4.1] [cloudfront]
+[vuln] 203.0.113.5:443 [CVE-2023-44487] [high] [7.5] [http/tls nginx 1.25.3] [KEV] [HTTP/2 Rapid Reset]
+[cert] www.example.com:443 [www.example.com] [issuer: R3] [expires 2026-12-01]
 ```
 
 The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
