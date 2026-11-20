@@ -172,7 +172,7 @@ func (s *server) cancel(params json.RawMessage) {
 
 var tools = []map[string]any{{
 	"name":        "scan",
-	"description": "Run attack-surface discovery against a domain: subdomain enumeration (passive sources via subfinder; with `subdomain_brute_force`, also a DNS brute-force of a wordlist, ignoring wildcard DNS), DNS resolution (dnsx; for domains with MX records, also the email security records: SPF, DMARC, MTA-STS, TLS-RPT, BIMI, DKIM under common selectors and the mail servers' TLSA; and a zone transfer attempt on each nameserver), IP ownership/geo lookup (ipinfo.io), cloud discovery (the cloud or edge service behind each host, from IP ranges and CNAMEs; the Microsoft Entra ID tenant, sign-in type and tenant domains; Google Workspace; with `cloud_services`, also Azure, Google Cloud, Microsoft 365 and Okta resources named after the domain; with `cloud_storage`, also public AWS S3, Google Cloud and Azure buckets named after the domain), HTTP probing of each host (httpx: status, title, technologies, CDN/WAF) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. With `services` (requires `ports`), each open port is actively probed to identify its service (product, version, CPEs); this needs nmap installed on the server, or `service_probes`. With `vulns`, the CVEs affecting each detected service's and web technology's version are looked up (NVD) with exploitation data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs); the server reads optional API keys from NVD_API_KEY and PDCP_API_KEY. Port scanning is not available in Windows ARM64 builds. Use `skip` to turn stages off. Returns the full result as JSON.",
+	"description": "Run attack-surface discovery against a domain: subdomain enumeration (passive sources via subfinder; with `subdomain_brute_force`, also a DNS brute-force of a wordlist, ignoring wildcard DNS), DNS resolution (dnsx; for domains with MX records, also the email security records: SPF, DMARC, MTA-STS, TLS-RPT, BIMI, DKIM under common selectors and the mail servers' TLSA; and a zone transfer attempt on each nameserver), IP ownership/geo lookup (ipinfo.io), cloud discovery (the cloud or edge service behind each host, from IP ranges and CNAMEs; the Microsoft Entra ID tenant, sign-in type and tenant domains; Google Workspace; with `cloud_services`, also Azure, Google Cloud, Microsoft 365 and Okta resources named after the domain; with `cloud_storage`, also public AWS S3, Google Cloud and Azure buckets named after the domain), HTTP probing of each host (httpx: status, title, technologies, CDN/WAF) and TLS certificate inspection (tlsx). A TCP port scan (naabu) of every resolved IP runs only when `ports` is true; resolved IPs can include third-party hosting and CDNs, so only enable it for infrastructure you are authorized to scan. With `services` (requires `ports`), each open port is actively probed to identify its service (product, version, CPEs); this needs nmap installed on the server, or `service_probes`. With `vulns`, the CVEs affecting each detected service's and web technology's version are looked up (NVD) with exploitation data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs); the server reads optional API keys from NVD_API_KEY and PDCP_API_KEY. API keys are never tool arguments: the server reads IPINFO_TOKEN for ipinfo.io and subfinder's <SOURCE>_API_KEY variables (e.g. VIRUSTOTAL_API_KEY) or `subfinder_config` for passive sources. Port scanning is not available in Windows ARM64 builds. Use `skip` to turn stages off. Returns the full result as JSON.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -186,7 +186,6 @@ var tools = []map[string]any{{
 			"service_probes":        map[string]any{"type": "string", "description": "Path to an nmap-service-probes file for services (defaults to a local nmap installation's copy)"},
 			"vulns":                 map[string]any{"type": "boolean", "description": "Look up the CVEs affecting each detected service's and web technology's version, with KEV/EPSS/PoC data (needs services or the web stage; default false)"},
 			"resolvers":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "DNS resolvers, e.g. udp:1.1.1.1:53"},
-			"ipinfo_token":          map[string]any{"type": "string", "description": "ipinfo.io API token (optional)"},
 			"subfinder_config":      map[string]any{"type": "string", "description": "Path to subfinder provider-config.yaml for API-key sources"},
 			"subdomain_brute_force": map[string]any{"type": "boolean", "description": "After subfinder, also try each label of a wordlist as <label>.<domain>; one DNS query per label (default false)"},
 			"cloud_storage":         map[string]any{"type": "boolean", "description": "Also look for AWS S3, Google Cloud Storage and Azure Blob containers named after the domain that anyone can list; guesses names, a few hundred requests (default false)"},
@@ -208,7 +207,6 @@ type scanArgs struct {
 	ServiceProbes       string   `json:"service_probes"`
 	Vulns               bool     `json:"vulns"`
 	Resolvers           []string `json:"resolvers"`
-	IPInfoToken         string   `json:"ipinfo_token"`
 	SubfinderConfig     string   `json:"subfinder_config"`
 	SubdomainBruteforce bool     `json:"subdomain_brute_force"`
 	CloudStorage        bool     `json:"cloud_storage"`
@@ -262,8 +260,8 @@ func (s *server) handleToolCall(ctx context.Context, req *request) {
 		// API keys come from the server's environment, never tool arguments.
 		NVDAPIKey:           os.Getenv("NVD_API_KEY"),
 		PDCPAPIKey:          os.Getenv("PDCP_API_KEY"),
+		IPInfoToken:         os.Getenv("IPINFO_TOKEN"),
 		Resolvers:           a.Resolvers,
-		IPInfoToken:         a.IPInfoToken,
 		SubfinderCfg:        a.SubfinderConfig,
 		CloudStorage:        a.CloudStorage,
 		CloudServices:       a.CloudServices,

@@ -91,9 +91,11 @@ Output:
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
-  --ipinfo-token <tok>      ipinfo.io API token
+  --ipinfo-token <tok>      ipinfo.io API token (default: $IPINFO_TOKEN)
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
-                            (defaults to subfinder's own ~/.config path)
+                            (defaults to subfinder's own ~/.config path);
+                            keys can also come from <SOURCE>_API_KEY
+                            variables, e.g. $VIRUSTOTAL_API_KEY
   --subdomain-wordlist <f>  wordlist for --subdomain-brute-force, one label per
                             line (default: built-in SecLists top 5,000)
   --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
@@ -120,7 +122,7 @@ func runScan(args []string) int {
 		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, cloud, web, certs")
 		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
-		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
+		ipToken   = fs.String("ipinfo-token", os.Getenv("IPINFO_TOKEN"), "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
 		cloud     = fs.Bool("cloud-storage", false, "look for public cloud storage buckets named after the domain")
 		cloudSvcs = fs.Bool("cloud-services", false, "look for cloud resources named after the domain")

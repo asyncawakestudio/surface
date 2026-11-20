@@ -58,9 +58,11 @@ Output:
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
-  --ipinfo-token <tok>      ipinfo.io API token
+  --ipinfo-token <tok>      ipinfo.io API token (default: $IPINFO_TOKEN)
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
-                            (defaults to subfinder's own ~/.config path)
+                            (defaults to subfinder's own ~/.config path);
+                            keys can also come from <SOURCE>_API_KEY
+                            variables, e.g. $VIRUSTOTAL_API_KEY
   --subdomain-wordlist <f>  wordlist for --subdomain-brute-force, one label per
                             line (default: built-in SecLists top 5,000)
   --resolvers <list>        comma-separated DNS resolvers, e.g. udp:1.1.1.1:53
@@ -193,6 +195,23 @@ version, known-exploited first.
   CVEs against your distribution's advisories.
 - If vulnx fails for a CVE, it is still listed, without exploitation data.
 
+## API keys
+
+All optional; more keys mean more results or higher rate limits. Prefer the
+environment variables to the flags, which show up in `ps` and shell history.
+
+| Service | Variable | Flag |
+|---------|----------|------|
+| Subdomain sources (VirusTotal, Shodan, SecurityTrails, Censys, GitHub...) | `<SOURCE>_API_KEY`, e.g. `VIRUSTOTAL_API_KEY` | `--subfinder-config` (a subfinder `provider-config.yaml`) |
+| ipinfo.io | `IPINFO_TOKEN` | `--ipinfo-token` |
+| NVD (`--vulns`) | `NVD_API_KEY` | `--nvd-api-key` |
+| ProjectDiscovery Cloud (`--vulns`) | `PDCP_API_KEY` | `--pdcp-api-key` |
+
+Subdomains are enumerated with every
+[subfinder source](https://github.com/projectdiscovery/subfinder#post-installation-instructions);
+a source that needs a key is skipped without one. subfinder reads
+`<SOURCE>_API_KEY` itself, with the source's name in capitals.
+
 ## MCP
 
 `surface mcp` speaks the Model Context Protocol over stdio (newline-delimited
@@ -207,8 +226,8 @@ JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at it:
 ```
 
 The `scan` tool takes `{ "domain": "example.com", "ports": true, "services": true, "vulns": true, ... }` (same
-options as the CLI flags; API keys come from the server's `NVD_API_KEY` and
-`PDCP_API_KEY` environment variables) and returns the full result as JSON text. Scans run
+options as the CLI flags; API keys come from the server's environment,
+never tool arguments: see [API keys](#api-keys)) and returns the full result as JSON text. Scans run
 concurrently and stop on `notifications/cancelled`. Quick manual check:
 
 ```sh
