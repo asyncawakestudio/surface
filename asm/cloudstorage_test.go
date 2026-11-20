@@ -82,7 +82,7 @@ func TestFindPublicBuckets(t *testing.T) {
 	}
 	var lines []string
 	for _, b := range got {
-		lines = append(lines, fmt.Sprintf("%s %s %d", b.provider, strings.TrimPrefix(b.url, srv.URL), b.objects))
+		lines = append(lines, fmt.Sprintf("%s %s %d", b.Provider, strings.TrimPrefix(b.URL, srv.URL), b.Objects))
 	}
 	slices.Sort(lines)
 	want := []string{
@@ -93,17 +93,26 @@ func TestFindPublicBuckets(t *testing.T) {
 	if fmt.Sprint(lines) != fmt.Sprint(want) {
 		t.Errorf("got %v\nwant %v", lines, want)
 	}
+}
 
-	m := publicBucket{provider: "AWS S3", url: "https://example-backups.s3.amazonaws.com/", objects: 1}.misconfig("example.com")
-	if m.Host != "example-backups.s3.amazonaws.com" || m.Check != "public_bucket" || m.Severity != "high" || m.Service != "AWS S3" ||
-		!strings.Contains(m.Detail, "may not be yours") {
-		t.Errorf("misconfig = %+v", m)
+func TestRunCloudStorageNeedsCloud(t *testing.T) {
+	_, err := New(Options{CloudStorage: true, SkipCloud: true}).Run(t.Context(), Target{Domain: "example.com"}, nil)
+	if err != ErrCloudStorageNeedsCloud {
+		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestRunCloudStorageNeedsMisconfig(t *testing.T) {
-	_, err := New(Options{CloudStorage: true, SkipMisconfig: true}).Run(t.Context(), Target{Domain: "example.com"}, nil)
-	if err != ErrCloudStorageNeedsMisconfig {
-		t.Fatalf("err = %v", err)
+func TestComparePublicBuckets(t *testing.T) {
+	a := PublicBucket{Provider: "AWS S3", URL: "https://a.s3.amazonaws.com/", Objects: 1}
+	b := PublicBucket{Provider: "AWS S3", URL: "https://b.s3.amazonaws.com/", Objects: 2}
+	checked := []Stage{StageCloud, StageCloudStorage}
+	d := Compare(&Result{Stages: checked, PublicBuckets: []PublicBucket{a}}, &Result{Stages: checked, PublicBuckets: []PublicBucket{b}}).Cloud.PublicBuckets
+	if len(d.Added) != 1 || d.Added[0] != b || len(d.Removed) != 1 || d.Removed[0] != a {
+		t.Errorf("diff = %+v", d)
+	}
+	// A scan that didn't check cloud storage doesn't count as the buckets going away.
+	d = Compare(&Result{Stages: checked, PublicBuckets: []PublicBucket{a}}, &Result{Stages: []Stage{StageCloud}}).Cloud.PublicBuckets
+	if len(d.Added)+len(d.Removed) != 0 {
+		t.Errorf("diff without a cloud storage check = %+v", d)
 	}
 }

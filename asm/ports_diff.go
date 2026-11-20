@@ -67,8 +67,8 @@ func (r *Result) ran(stage Stage) bool {
 		return len(r.Services()) > 0
 	case StageCloud:
 		return len(r.CloudAssets) > 0 || len(r.Identity) > 0
-	case StageMisconfig:
-		return len(r.Misconfigurations) > 0
+	case StageCloudStorage:
+		return len(r.PublicBuckets) > 0
 	case StageWeb:
 		return len(r.Web) > 0
 	case StageVulns:

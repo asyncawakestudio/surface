@@ -69,6 +69,9 @@ func flatten(r *asm.Result) []record {
 	for _, d := range r.DNSRecords {
 		rows = append(rows, record{Type: "dns", Host: d.Host, Field: d.Type, Value: d.Value})
 	}
+	for _, z := range r.ZoneTransfers {
+		rows = append(rows, record{Type: "zone_transfer", Host: r.Domain, Field: z.Nameserver, Value: fmt.Sprintf("%d records", z.Records)})
+	}
 	for _, i := range r.IPInfo {
 		rec := record{Type: "ipdr", IP: i.IP, Field: "data", Value: string(i.Data)}
 		if i.Error != "" {
@@ -94,8 +97,8 @@ func flatten(r *asm.Result) []record {
 	for _, idp := range r.Identity {
 		rows = append(rows, record{Type: "identity", Host: idp.Domain, Field: idp.Provider, Value: identityDetails(idp)})
 	}
-	for _, m := range r.Misconfigurations {
-		rows = append(rows, record{Type: "misconfig", Host: m.Host, Port: m.Port, Field: m.Check, Value: m.Severity + ": " + m.Detail})
+	for _, b := range r.PublicBuckets {
+		rows = append(rows, record{Type: "public_bucket", Host: bucketHost(b.URL), Field: b.Provider, Value: fmt.Sprintf("%s (%d objects listed)", b.URL, b.Objects)})
 	}
 	for _, wp := range r.Web {
 		rows = append(rows, record{Type: "web", Host: wp.Host, IP: wp.IP, Port: wp.Port, Field: wp.URL, Value: webDetails(wp)})
@@ -173,6 +176,13 @@ func renderText(w io.Writer, r *asm.Result) error {
 		p("  %-40s %-6s %s\n", d.Host, d.Type, d.Value)
 	}
 
+	if len(r.ZoneTransfers) > 0 {
+		p("\nZone transfers (%d)\n", len(r.ZoneTransfers))
+		for _, z := range r.ZoneTransfers {
+			p("  %s  %d records\n", z.Nameserver, z.Records)
+		}
+	}
+
 	p("\nIPDR (%d)\n", len(r.IPInfo))
 	for _, i := range r.IPInfo {
 		if i.Error != "" {
@@ -207,14 +217,10 @@ func renderText(w io.Writer, r *asm.Result) error {
 		}
 	}
 
-	if len(r.Misconfigurations) > 0 || slices.Contains(r.Stages, asm.StageMisconfig) {
-		p("\nMisconfigurations (%d)\n", len(r.Misconfigurations))
-		for _, m := range r.Misconfigurations {
-			host := m.Host
-			if m.Port != 0 {
-				host += ":" + strconv.Itoa(m.Port)
-			}
-			p("  %-6s  %-16s %s  %s\n", m.Severity, m.Check, host, m.Detail)
+	if len(r.PublicBuckets) > 0 || slices.Contains(r.Stages, asm.StageCloudStorage) {
+		p("\nPublic buckets (%d)\n", len(r.PublicBuckets))
+		for _, b := range r.PublicBuckets {
+			p("  %-20s  %s  %d objects listed\n", b.Provider, b.URL, b.Objects)
 		}
 	}
 
@@ -503,4 +509,13 @@ func summarizeIPInfo(data []byte) string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+// bucketHost is the host part of a bucket URL.
+func bucketHost(u string) string {
+	if _, rest, ok := strings.Cut(u, "://"); ok {
+		u = rest
+	}
+	host, _, _ := strings.Cut(u, "/")
+	return host
 }

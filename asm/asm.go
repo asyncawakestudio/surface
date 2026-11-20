@@ -2,7 +2,7 @@
 //
 // A scan runs a sequence of stages against a root domain:
 //
-//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> cloud -> misconfig -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
+//	subdomains (subfinder) -> dns (dnsx) -> ipdr (ipinfo.io) -> cloud -> ports (naabu) -> web (httpx) -> vulns (NVD, vulnx) -> certs (tlsx)
 //
 // ipdr, ports, web and certs work from the hosts the DNS stage resolved. ports
 // is opt-in (Options.PortScan). With Options.ServiceDetection, the ports stage
@@ -13,8 +13,12 @@
 // affecting the detected services' and technologies' versions (see
 // Vulnerability). The cloud stage labels hosts with the cloud or edge
 // service they run on (see CloudAsset) and finds the domain's identity
-// providers (see IdentityProvider). The misconfig stage checks SPF, DMARC, CAA, zone transfers
-// and subdomain takeovers (see Misconfiguration).
+// providers (see IdentityProvider). The DNS stage also tries a zone transfer
+// from each of the domain's nameservers (see ZoneTransfer).
+//
+// surface collects data; it doesn't judge it. Findings that can be worked out
+// from a Result, such as weak SPF or DMARC records, subdomain takeover risks
+// or weak TLS settings, are left to the caller.
 package asm
 
 import (
@@ -39,9 +43,11 @@ const (
 	StageDNS        Stage = "dns"
 	StageIPDR       Stage = "ipdr"
 	StageCloud      Stage = "cloud"
-	StageMisconfig  Stage = "misconfig"
-	StagePorts      Stage = "ports"
-	StageWeb        Stage = "web"
+	// StageCloudStorage is the public bucket check, part of the cloud stage.
+	// It is recorded in Result.Stages but not reported to a ProgressFunc.
+	StageCloudStorage Stage = "cloud_storage"
+	StagePorts        Stage = "ports"
+	StageWeb          Stage = "web"
 	// StageServices is service detection, part of the ports stage. It is
 	// recorded in Result.Stages but not reported to a ProgressFunc.
 	StageServices Stage = "services"
@@ -107,19 +113,26 @@ type Result struct {
 	// saved before this field existed don't have it.
 	Stages     []Stage     `json:"stages,omitempty"`
 	Subdomains []Subdomain `json:"subdomains"`
+	// DNSRecords are every live host's records, plus, for the root and hosts
+	// with MX records, the records relevant to email security: SPF, DMARC,
+	// MTA-STS, TLS-RPT, BIMI and DKIM (common selectors), their mail servers'
+	// TLSA records (DANE), and the SPF records of domains their SPF includes,
+	// which can be outside the scanned domain.
 	DNSRecords []DNSRecord `json:"dns_records"`
-	TLSCerts   []TLSCert   `json:"tls_certs"`
-	IPInfo     []IPInfo    `json:"ip_info"`
-	PortScans  []PortScan  `json:"port_scans"`
+	// ZoneTransfers lists the domain's nameservers that allow zone transfers.
+	ZoneTransfers []ZoneTransfer `json:"zone_transfers,omitempty"`
+	TLSCerts      []TLSCert      `json:"tls_certs"`
+	IPInfo        []IPInfo       `json:"ip_info"`
+	PortScans     []PortScan     `json:"port_scans"`
 	// CloudAssets lists hosts on cloud and edge services and, with
 	// Options.CloudServices, cloud resources named after the domain.
 	CloudAssets []CloudAsset `json:"cloud_assets,omitempty"`
 	// Identity lists the identity providers the domain uses (Entra ID,
 	// Google Workspace, Okta).
 	Identity []IdentityProvider `json:"identity,omitempty"`
-	// Misconfigurations lists weak DNS and email security settings and
-	// subdomains at risk of takeover.
-	Misconfigurations []Misconfiguration `json:"misconfigurations,omitempty"`
+	// PublicBuckets lists storage buckets named after the domain that anyone
+	// can list, found with Options.CloudStorage.
+	PublicBuckets []PublicBucket `json:"public_buckets,omitempty"`
 	// Web lists what each host serves over HTTP(S).
 	Web []WebPage `json:"web,omitempty"`
 	// Vulnerabilities is set when the scan ran with Options.VulnLookup.
@@ -178,9 +191,7 @@ type Options struct {
 	// Engine, Firebase, SharePoint, Okta...) and keep those whose DNS name
 	// exists. Off by default: it sends a few hundred DNS queries.
 	CloudServices bool
-	// SkipMisconfig disables the DNS, email and subdomain takeover checks.
-	SkipMisconfig bool
-	// CloudStorage adds a check to the misconfig stage for AWS S3, Google
+	// CloudStorage adds a check to the cloud stage for AWS S3, Google
 	// Cloud Storage and Azure Blob Storage buckets named after the domain
 	// ("example-backups") that anyone can list. Off by default: it guesses
 	// names, sending a few hundred requests to the providers.
@@ -342,8 +353,8 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	if s.opts.CloudServices && s.opts.SkipCloud {
 		return nil, ErrCloudServicesNeedsCloud
 	}
-	if s.opts.CloudStorage && s.opts.SkipMisconfig {
-		return nil, ErrCloudStorageNeedsMisconfig
+	if s.opts.CloudStorage && s.opts.SkipCloud {
+		return nil, ErrCloudStorageNeedsCloud
 	}
 	if s.opts.VulnLookup && !s.opts.ServiceDetection && s.opts.SkipWeb {
 		return nil, ErrVulnLookupNeedsServices
@@ -397,7 +408,12 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 	if err != nil {
 		return nil, fmt.Errorf("dns resolution: %w", err)
 	}
-	res.DNSRecords = records
+	extra, transfers, err := s.lookupDomainRecords(ctx, domain, records)
+	if err != nil {
+		return nil, fmt.Errorf("dns resolution: %w", err)
+	}
+	res.DNSRecords = append(records, extra...)
+	res.ZoneTransfers = transfers
 
 	if !s.opts.SkipIPDR {
 		progress(StageIPDR)
@@ -415,14 +431,12 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		if err != nil {
 			return nil, fmt.Errorf("cloud discovery: %w", err)
 		}
-	}
-
-	if !s.opts.SkipMisconfig {
-		progress(StageMisconfig)
-		res.Stages = append(res.Stages, StageMisconfig)
-		res.Misconfigurations, err = s.checkMisconfigs(ctx, domain, res.DNSRecords)
-		if err != nil {
-			return nil, fmt.Errorf("misconfiguration checks: %w", err)
+		if s.opts.CloudStorage {
+			res.Stages = append(res.Stages, StageCloudStorage)
+			res.PublicBuckets, err = s.findPublicBuckets(ctx, domain)
+			if err != nil {
+				return nil, fmt.Errorf("cloud storage check: %w", err)
+			}
 		}
 	}
 
@@ -463,12 +477,6 @@ func (s *Scanner) Run(ctx context.Context, target Target, progress ProgressFunc)
 		res.TLSCerts, err = s.grabCerts(ctx, resolved, tlsPortsByHost(resolved, res.PortScans, res.Web))
 		if err != nil {
 			return nil, fmt.Errorf("tls probing: %w", err)
-		}
-		// The misconfig stage ran before any certificate was seen; add the
-		// TLS findings to it now.
-		if !s.opts.SkipMisconfig {
-			res.Misconfigurations = append(res.Misconfigurations, tlsMisconfigs(res.TLSCerts, time.Now())...)
-			sortMisconfigs(res.Misconfigurations)
 		}
 	}
 

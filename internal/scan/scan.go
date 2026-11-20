@@ -16,7 +16,7 @@ import (
 )
 
 // Params are the knobs both front-ends expose. By default subdomains, dns,
-// ipdr, cloud, misconfig, web and certs run; the port scan is opt-in (Ports) because it probes every
+// ipdr, cloud, web and certs run; the port scan is opt-in (Ports) because it probes every
 // resolved IP, including third-party infrastructure. Set the Skip* fields to
 // turn stages off. Zero values elsewhere mean "default", except Domain which
 // is required.
@@ -25,7 +25,6 @@ type Params struct {
 	SkipIPDR            bool
 	SkipCerts           bool
 	SkipWeb             bool
-	SkipMisconfig       bool
 	SkipCloud           bool
 	CloudServices       bool   // guess cloud resources named after the domain
 	CloudStorage        bool   // check for public buckets named after the domain
@@ -68,7 +67,6 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 		SkipIPDR:                p.SkipIPDR,
 		SkipCerts:               p.SkipCerts,
 		SkipWeb:                 p.SkipWeb,
-		SkipMisconfig:           p.SkipMisconfig,
 		SkipCloud:               p.SkipCloud,
 		CloudServices:           p.CloudServices,
 		CloudStorage:            p.CloudStorage,
@@ -88,7 +86,7 @@ func (p Params) Options(logs *slog.Logger) asm.Options {
 // StageNames are the stages a caller may skip. subdomains and dns are
 // foundational (everything depends on them) and cannot be skipped; ports is
 // off unless requested.
-var StageNames = []string{"ipdr", "cloud", "misconfig", "web", "certs"}
+var StageNames = []string{"ipdr", "cloud", "web", "certs"}
 
 // ApplySkips sets the Skip* fields from stage names, returning an error for an
 // unknown or non-skippable name.
@@ -101,8 +99,6 @@ func (p *Params) ApplySkips(names []string) error {
 			p.SkipCerts = true
 		case "web":
 			p.SkipWeb = true
-		case "misconfig":
-			p.SkipMisconfig = true
 		case "cloud":
 			p.SkipCloud = true
 		case "ports":
@@ -128,8 +124,8 @@ func (p Params) Validate() error {
 	if p.SubdomainWordlist != "" && !p.SubdomainBruteforce {
 		return ErrWordlistNeedsBruteforce
 	}
-	if p.CloudStorage && p.SkipMisconfig {
-		return asm.ErrCloudStorageNeedsMisconfig
+	if p.CloudStorage && p.SkipCloud {
+		return asm.ErrCloudStorageNeedsCloud
 	}
 	if p.CloudServices && p.SkipCloud {
 		return asm.ErrCloudServicesNeedsCloud

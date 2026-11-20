@@ -10,13 +10,15 @@ import (
 type Diff struct {
 	Subdomains SubdomainDiff      `json:"subdomains"`
 	DNSRecords SetDiff[DNSRecord] `json:"dns_records"`
-	TLSCerts   CertDiff           `json:"tls_certs"`
-	IPInfo     IPInfoDiff         `json:"ip_info"`
-	Ports      PortDiff           `json:"ports"`
-	Web        WebDiff            `json:"web"`
-	Misconfigs MisconfigDiff      `json:"misconfigurations"`
-	Cloud      CloudDiff          `json:"cloud"`
-	Vulns      VulnDiff           `json:"vulnerabilities"`
+	// ZoneTransfers are nameservers that started or stopped allowing zone
+	// transfers.
+	ZoneTransfers SetDiff[ZoneTransfer] `json:"zone_transfers"`
+	TLSCerts      CertDiff              `json:"tls_certs"`
+	IPInfo        IPInfoDiff            `json:"ip_info"`
+	Ports         PortDiff              `json:"ports"`
+	Web           WebDiff               `json:"web"`
+	Cloud         CloudDiff             `json:"cloud"`
+	Vulns         VulnDiff              `json:"vulnerabilities"`
 }
 
 // SetDiff lists items present in only one of two scans.
@@ -50,24 +52,25 @@ type CertChange struct {
 func (d Diff) Empty() bool {
 	return len(d.Subdomains.Added)+len(d.Subdomains.Removed)+len(d.Subdomains.NoLongerReported)+
 		len(d.DNSRecords.Added)+len(d.DNSRecords.Removed)+
+		len(d.ZoneTransfers.Added)+len(d.ZoneTransfers.Removed)+
 		len(d.TLSCerts.Added)+len(d.TLSCerts.Removed)+len(d.TLSCerts.Changed)+
 		len(d.IPInfo.Added)+len(d.IPInfo.Removed)+len(d.IPInfo.Changed)+
 		len(d.Ports.Added)+len(d.Ports.Removed)+len(d.Ports.ServiceChanged)+
 		len(d.Web.Added)+len(d.Web.Removed)+len(d.Web.Changed)+
-		len(d.Misconfigs.Added)+len(d.Misconfigs.Removed)+
 		len(d.Cloud.Assets.Added)+len(d.Cloud.Assets.Removed)+
 		len(d.Cloud.TenantDomains.Added)+len(d.Cloud.TenantDomains.Removed)+
+		len(d.Cloud.PublicBuckets.Added)+len(d.Cloud.PublicBuckets.Removed)+
 		len(d.Vulns.Added)+len(d.Vulns.Removed) == 0
 }
 
 // Compare returns the changes from prev to cur. Subdomains are compared by
-// host, DNS records by (host, type, value), certificates by endpoint (a
+// host, DNS records by (host, type, value), zone transfers by nameserver,
+// certificates by endpoint (a
 // changed fingerprint counts as a replaced certificate), ipinfo data by
 // IP, field by field, open ports by (IP, port, protocol), web pages by URL,
-// misconfigurations (including takeover risks) by host, check and detail,
-// cloud assets by host and service, Entra tenant domains, and CVEs by port and
-// ID. Ports, web pages, misconfigurations, cloud results and CVEs are only
-// compared when both scans looked for them.
+// cloud assets by host and service, Entra tenant domains, public buckets by
+// URL, and CVEs by port and ID. Ports, web pages, cloud results, public
+// buckets and CVEs are only compared when both scans looked for them.
 func Compare(prev, cur *Result) Diff {
 	d := Diff{
 		Subdomains: SubdomainDiff{
@@ -77,6 +80,7 @@ func Compare(prev, cur *Result) Diff {
 		DNSRecords: setDiff(prev.DNSRecords, cur.DNSRecords, func(r DNSRecord) string {
 			return r.Host + "\x00" + r.Type + "\x00" + r.Value
 		}),
+		ZoneTransfers: setDiff(prev.ZoneTransfers, cur.ZoneTransfers, func(z ZoneTransfer) string { return z.Nameserver }),
 	}
 
 	reportedBefore := make(map[string]bool, len(prev.Subdomains))
@@ -111,7 +115,6 @@ func Compare(prev, cur *Result) Diff {
 	d.IPInfo = compareIPInfo(prev, cur)
 	d.Ports = comparePorts(prev, cur)
 	d.Web = compareWeb(prev, cur)
-	d.Misconfigs = compareMisconfigs(prev, cur)
 	d.Cloud = compareCloud(prev, cur)
 	d.Vulns = compareVulnerabilities(prev, cur)
 	return d

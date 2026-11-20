@@ -28,8 +28,8 @@ Usage:
   surface mcp           run as an MCP server on stdio
   surface version
 
-By default these stages run: subdomains, dns, ipdr, cloud, misconfig, web,
-certs. The port scan is opt-in (--ports) since it probes every IP the domain
+By default these stages run: subdomains, dns, ipdr, cloud, web, certs.
+The port scan is opt-in (--ports) since it probes every IP the domain
 resolves to, including hosting and CDN infrastructure you may not own.
 
 Output:
@@ -37,8 +37,8 @@ Output:
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, cloud,
-                        misconfig, web, certs
+  --skip <stages>       comma-separated stages to skip: ipdr, cloud, web,
+                        certs
                         (subdomains and dns are always run)
   --subdomain-brute-force
                         after subfinder, also try each label of a wordlist
@@ -129,47 +129,34 @@ Shows what runs where and who signs users in. No requests go to the target.
   Cosmos DB, API Management, Service Bus, Redis, SharePoint, Google App
   Engine and Firebase, plus Okta orgs. About 300 DNS queries; services with
   wildcard DNS are skipped. A match may belong to someone else.
+- **`--cloud-storage`** (opt-in) looks for AWS S3, Google Cloud Storage and
+  Azure Blob containers named after the domain that anyone can list. It
+  guesses names from the domain and common words (`example-backups`,
+  `static-example`, `examplecom-dev`...): about 250 anonymous requests to S3,
+  Google Cloud and Azure, plus 10 container guesses per Azure account that
+  exists. It reads listings only, never objects. A bucket named after you may
+  belong to someone else, so check its owner before acting.
 - Turn it off with `--skip cloud`.
 
-### Misconfigurations (on by default)
+### DNS (always on)
 
-Flags DNS, email and TLS settings that let others spoof the domain's mail,
-read its DNS, take over its subdomains or weaken its encrypted connections.
-Findings are listed most severe first.
+Collects each host's A, AAAA, CNAME, MX, NS, TXT and CAA records, and tries a
+zone transfer (AXFR) from each of the domain's nameservers, listing those that
+allow one.
 
-| Check | Flags |
-|-------|-------|
-| `takeover` | A subdomain whose CNAME points at a third-party resource nobody owns any more (a deleted S3 bucket, Azure app...), which someone else could claim. **High** when the service is known to allow takeovers and its "unclaimed" sign matched: the target doesn't exist, or the page shows the service's error (e.g. `The specified bucket does not exist`). **Medium** when the target doesn't exist and matches no known service. |
-| `zone_transfer` | A nameserver that hands its whole zone to anyone (AXFR, high). |
-| `spf` | No SPF record, several records, `+all` (anyone may send, high), `?all` or no `all` (spoofed mail isn't rejected). Run on the root domain and every subdomain with MX records. |
-| `dmarc` | No DMARC record on the root domain, several records, `p=none` or no policy; `sp=none` or `pct` below 100 (low). |
-| `caa` | No CAA record: any certificate authority may issue certificates for the domain (low). |
-| `tls_version` | An endpoint whose best protocol is SSL 3.0, TLS 1.0 or TLS 1.1. |
-| `tls_cipher` | A broken cipher negotiated: RC4, DES/3DES, NULL, export grade, anonymous or MD5 (high). |
-| `cert_expired`, `cert_expiring` | A certificate that has expired (high) or expires within 30 days. |
-| `cert_self_signed`, `cert_mismatch` | A self-signed certificate, or one that doesn't cover the host. |
-| `public_bucket` | With `--cloud-storage`: an AWS S3, Google Cloud Storage or Azure Blob container named after the domain that anyone can list (high). |
+- **Email:** for the root domain and each host with MX records (domains
+  without MX records are skipped), it also collects what email security
+  depends on: SPF (TXT), DMARC (`_dmarc`), MTA-STS (`_mta-sts`), TLS-RPT
+  (`_smtp._tls`), BIMI (`default._bimi`), DKIM keys under common selectors
+  (`selector1`, `google`, `k1`, `s1`... DKIM keys can't be listed, so others
+  are missed), the mail servers' TLSA records (DANE, `_25._tcp.<mx>`), and the
+  SPF records of the domains SPF includes or redirects to (up to 20), which
+  can be outside the domain. About 30 queries per mail domain.
 
-- Works from the DNS stage's records. It also sends one AXFR attempt per
-  nameserver of the root domain, and HTTP requests only to subdomains whose
-  CNAME names a known takeover service, without verifying certificates (an
-  unclaimed resource shows the provider's).
-- Takeover fingerprints come from
-  [can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz)
-  (CC BY 4.0); `make update-fingerprints` refreshes them. Services it lists
-  as edge cases, such as GitHub Pages and Heroku, are at most medium.
-- The TLS checks use the certificate stage's connections, so they need it
-  (`--skip certs` turns them off). It probes port 443 on every host, plus
-  ports where the port scan or web stage saw TLS. Only the version and cipher
-  each endpoint negotiates are checked, not every one it accepts.
-- `--cloud-storage` guesses names from the domain and common words
-  (`example-backups`, `static-example`, `examplecom-dev`...): about 250
-  anonymous requests to S3, Google Cloud and Azure, plus 10 container
-  guesses per Azure account that exists. It reads listings only, never objects. A bucket named after
-  you may belong to someone else, so check its owner before acting.
-- DKIM isn't checked: its records live under selector names that can't be
-  listed, so a missing key can't be told apart from an unknown selector.
-- Turn it off with `--skip misconfig`.
+surface reports what it finds and doesn't grade it: findings that can be
+worked out from the results, such as weak SPF or DMARC records, missing CAA,
+subdomain takeover risks or weak TLS settings, are left to whatever consumes
+them.
 
 ### Web (on by default)
 
@@ -239,20 +226,20 @@ import "github.com/asyncawakestudio/surface/asm"
 scanner := asm.New(asm.Options{PortScan: true, PortScanType: "connect", ServiceDetection: true})
 res, err := scanner.Run(ctx, asm.Target{Domain: "example.com"}, nil)
 // res.Subdomains, res.DNSRecords, res.IPInfo, res.PortScans, res.TLSCerts
+// res.ZoneTransfers: nameservers that allow zone transfers
 // res.Services(): every identified service with its IP, hosts and port
 // res.CloudAssets, res.Identity: cloud services behind hosts; Entra ID, Google Workspace, Okta
-// res.Misconfigurations: weak SPF, DMARC, CAA and zone transfer settings, and
-//   subdomains whose CNAME points at an unclaimed resource
+// res.PublicBuckets: with CloudStorage, listable buckets named after the domain
 // res.Web: what each host serves over HTTP(S), with detected technologies
 // res.Vulnerabilities: with VulnLookup, the CVEs affecting each service and technology
 ```
 
 The engine's own defaults differ from the CLI: `PortScanType` defaults to
 `"syn"`. `asm.Compare(prev, cur)` diffs two results (used by surface-cloud to show what
-changed between scans): subdomains, DNS records, IP data, certificates, open ports,
-service versions, web pages, misconfigurations (including takeover risks), cloud assets,
-Entra tenant domains and CVEs. Ports, web pages, misconfigurations, cloud results and
-CVEs are only compared when both scans looked for them (`Result.Stages`).
+changed between scans): subdomains, DNS records, zone transfers, IP data, certificates,
+open ports, service versions, web pages, cloud assets, Entra tenant domains, public
+buckets and CVEs. Ports, web pages, cloud results, public buckets and CVEs are only
+compared when both scans looked for them (`Result.Stages`).
 
 ## Building
 
