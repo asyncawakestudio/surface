@@ -5,13 +5,11 @@ DOMAIN  ?= example.com
 
 .PHONY: build install test test-integration run clean fmt vet update-fingerprints
 
-build: ## Build the CLI and MCP binaries into ./bin
+build: ## Build ./bin/surface (CLI and MCP server)
 	go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o bin/surface ./cmd/surface
-	go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o bin/surface-mcp ./cmd/surface-mcp
 
-install: ## go install both commands onto your PATH
+install: ## go install surface onto your PATH
 	go install $(GOFLAGS) -ldflags="$(LDFLAGS)" ./cmd/surface
-	go install $(GOFLAGS) -ldflags="$(LDFLAGS)" ./cmd/surface-mcp
 
 fmt:
 	gofmt -w .
