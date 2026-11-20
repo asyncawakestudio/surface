@@ -58,7 +58,6 @@ Output:
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
-  --ipinfo-token <tok>      ipinfo.io API token
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
   --subdomain-wordlist <f>  wordlist for --subdomain-brute-force, one label per
@@ -71,10 +70,13 @@ Tuning (all optional):
   --port-rate <n>           packets/sec for the port scan
   --service-probes <f>      nmap-service-probes file for --services
                             (defaults to a local nmap installation's copy)
-  --nvd-api-key <key>       NVD API key for --vulns: 10x higher rate limit
-                            (default: $NVD_API_KEY)
-  --pdcp-api-key <key>      ProjectDiscovery Cloud API key for --vulns
-                            (default: $PDCP_API_KEY)
+
+API keys, from the environment only (all optional):
+  <SOURCE>_API_KEY          subdomain sources, e.g. VIRUSTOTAL_API_KEY,
+                            SHODAN_API_KEY (or --subfinder-config)
+  IPINFO_TOKEN              ipinfo.io
+  NVD_API_KEY               NVD, for --vulns: 10x higher rate limit
+  PDCP_API_KEY              ProjectDiscovery Cloud, for --vulns
 ```
 
 The `syn` port scan sends raw packets, so it needs root (or `CAP_NET_RAW`)
@@ -186,12 +188,30 @@ version, known-exploited first.
   without a versioned CPE are skipped.
 - **Keys (optional):** NVD allows 5 requests per 30s without a key, 50 with
   one ([request a key](https://nvd.nist.gov/developers/request-an-api-key));
-  use `--nvd-api-key` or `NVD_API_KEY`. vulnx takes a ProjectDiscovery Cloud
-  key via `--pdcp-api-key` or `PDCP_API_KEY`.
+  set `NVD_API_KEY`. vulnx takes a ProjectDiscovery Cloud key from
+  `PDCP_API_KEY`.
 - **Version-based:** distributions backport fixes without changing the
   upstream version (e.g. `OpenSSH 8.9p1 Ubuntu 3ubuntu0.10`), so check listed
   CVEs against your distribution's advisories.
 - If vulnx fails for a CVE, it is still listed, without exploitation data.
+
+## API keys
+
+All optional; more keys mean more results or higher rate limits. Keys come
+from environment variables only, never flags, which would show them in `ps`
+and shell history.
+
+| Service | Variable |
+|---------|----------|
+| Subdomain sources (VirusTotal, Shodan, SecurityTrails, Censys, GitHub...) | `<SOURCE>_API_KEY`, e.g. `VIRUSTOTAL_API_KEY`; or a subfinder `provider-config.yaml` via `--subfinder-config` |
+| ipinfo.io | `IPINFO_TOKEN` |
+| NVD (`--vulns`) | `NVD_API_KEY` |
+| ProjectDiscovery Cloud (`--vulns`) | `PDCP_API_KEY` |
+
+Subdomains are enumerated with every
+[subfinder source](https://github.com/projectdiscovery/subfinder#post-installation-instructions);
+a source that needs a key is skipped without one. subfinder reads
+`<SOURCE>_API_KEY` itself, with the source's name in capitals.
 
 ## MCP
 
@@ -207,8 +227,8 @@ JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at it:
 ```
 
 The `scan` tool takes `{ "domain": "example.com", "ports": true, "services": true, "vulns": true, ... }` (same
-options as the CLI flags; API keys come from the server's `NVD_API_KEY` and
-`PDCP_API_KEY` environment variables) and returns the full result as JSON text. Scans run
+options as the CLI flags; API keys come from the server's environment,
+never tool arguments: see [API keys](#api-keys)) and returns the full result as JSON text. Scans run
 concurrently and stop on `notifications/cancelled`. Quick manual check:
 
 ```sh

@@ -91,7 +91,6 @@ Output:
   --quiet               suppress progress logging on stderr
 
 Tuning (all optional):
-  --ipinfo-token <tok>      ipinfo.io API token
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
                             (defaults to subfinder's own ~/.config path)
   --subdomain-wordlist <f>  wordlist for --subdomain-brute-force, one label per
@@ -104,10 +103,13 @@ Tuning (all optional):
   --port-rate <n>           packets/sec for the port scan
   --service-probes <f>      nmap-service-probes file for --services
                             (defaults to a local nmap installation's copy)
-  --nvd-api-key <key>       NVD API key for --vulns: 10x higher rate limit
-                            (default: $NVD_API_KEY)
-  --pdcp-api-key <key>      ProjectDiscovery Cloud API key for --vulns
-                            (default: $PDCP_API_KEY)
+
+API keys, from the environment only (all optional):
+  <SOURCE>_API_KEY          subdomain sources, e.g. VIRUSTOTAL_API_KEY,
+                            SHODAN_API_KEY (or --subfinder-config)
+  IPINFO_TOKEN              ipinfo.io
+  NVD_API_KEY               NVD, for --vulns: 10x higher rate limit
+  PDCP_API_KEY              ProjectDiscovery Cloud, for --vulns
 `)
 }
 
@@ -120,7 +122,6 @@ func runScan(args []string) int {
 		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, cloud, web, certs")
 		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
-		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
 		cloud     = fs.Bool("cloud-storage", false, "look for public cloud storage buckets named after the domain")
 		cloudSvcs = fs.Bool("cloud-services", false, "look for cloud resources named after the domain")
@@ -134,8 +135,6 @@ func runScan(args []string) int {
 		services  = fs.Bool("services", false, "identify the service on each open port (needs --ports)")
 		probes    = fs.String("service-probes", "", "nmap-service-probes file for --services")
 		vulns     = fs.Bool("vulns", false, "look up CVEs for detected services and web technologies")
-		nvdKey    = fs.String("nvd-api-key", os.Getenv("NVD_API_KEY"), "NVD API key for --vulns")
-		pdcpKey   = fs.String("pdcp-api-key", os.Getenv("PDCP_API_KEY"), "ProjectDiscovery Cloud API key for --vulns")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -162,17 +161,19 @@ func runScan(args []string) int {
 	}
 
 	p := scan.Params{
-		Domain:              rest[0],
-		Ports:               *ports,
-		PortType:            *portType,
-		PortSpec:            *portSpec,
-		PortRate:            *portRate,
-		Services:            *services,
-		ServiceProbes:       *probes,
-		Vulns:               *vulns,
-		NVDAPIKey:           *nvdKey,
-		PDCPAPIKey:          *pdcpKey,
-		IPInfoToken:         *ipToken,
+		Domain:        rest[0],
+		Ports:         *ports,
+		PortType:      *portType,
+		PortSpec:      *portSpec,
+		PortRate:      *portRate,
+		Services:      *services,
+		ServiceProbes: *probes,
+		Vulns:         *vulns,
+		// API keys come from the environment only: flags would show them in
+		// ps and shell history.
+		NVDAPIKey:           os.Getenv("NVD_API_KEY"),
+		PDCPAPIKey:          os.Getenv("PDCP_API_KEY"),
+		IPInfoToken:         os.Getenv("IPINFO_TOKEN"),
 		SubfinderCfg:        *sfConfig,
 		CloudStorage:        *cloud,
 		CloudServices:       *cloudSvcs,
