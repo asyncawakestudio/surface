@@ -28,6 +28,7 @@ import (
 	"github.com/asyncawakestudio/surface/internal/mcp"
 	"github.com/asyncawakestudio/surface/internal/output"
 	"github.com/asyncawakestudio/surface/internal/scan"
+	"github.com/asyncawakestudio/surface/internal/termui"
 )
 
 func main() {
@@ -42,7 +43,7 @@ func main() {
 		usage()
 	case "mcp":
 		if err := mcp.Serve(os.Stdin, os.Stdout, version); err != nil {
-			fmt.Fprintln(os.Stderr, "surface mcp:", err)
+			fail("surface mcp: %v", err)
 			os.Exit(1)
 		}
 	default:
@@ -88,7 +89,9 @@ Output:
   --vulns               look up the CVEs affecting each detected service's
                         and web technology's version (NVD), with exploitation
                         data from ProjectDiscovery's vulnx (KEV, EPSS, PoCs)
-  --quiet               suppress progress logging on stderr
+  --quiet               suppress the banner and progress logging on stderr
+  --no-color            don't colour the output (also: NO_COLOR=1); output
+                        that isn't a terminal is never coloured
 
 Tuning (all optional):
   --subfinder-config <f>    subfinder provider-config.yaml with API keys
@@ -122,6 +125,7 @@ func runScan(args []string) int {
 		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, cloud, web, certs")
 		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
+		noColor   = fs.Bool("no-color", false, "don't colour the output")
 		sfConfig  = fs.String("subfinder-config", "", "subfinder provider-config.yaml")
 		cloud     = fs.Bool("cloud-storage", false, "look for public cloud storage buckets named after the domain")
 		cloudSvcs = fs.Bool("cloud-services", false, "look for cloud resources named after the domain")
@@ -141,22 +145,22 @@ func runScan(args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "error: exactly one <domain> is required (put flags before the domain)")
+		fail("exactly one <domain> is required (put flags before the domain)")
 		usage()
 		return 2
 	}
 	outFormat, outFile, err := resolveOutput(*outDest)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		fail("%v", err)
 		return 2
 	}
 
 	if !*ports && (*portType != "" || *portSpec != "" || *portRate != 0 || *services) {
-		fmt.Fprintln(os.Stderr, "error: --port-type, --port-spec, --port-rate and --services require --ports")
+		fail("--port-type, --port-spec, --port-rate and --services require --ports")
 		return 2
 	}
 	if !*services && *probes != "" {
-		fmt.Fprintln(os.Stderr, "error: --service-probes requires --services")
+		fail("--service-probes requires --services")
 		return 2
 	}
 
@@ -182,12 +186,12 @@ func runScan(args []string) int {
 	}
 	if *skip != "" {
 		if err := p.ApplySkips(splitComma(*skip)); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
+			fail("%v", err)
 			return 2
 		}
 	}
 	if err := p.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		fail("%v", err)
 		return 2
 	}
 	if *resolvers != "" {
@@ -196,42 +200,56 @@ func runScan(args []string) int {
 	if *maxTime != "" {
 		d, err := time.ParseDuration(*maxTime)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error: invalid --max-time:", err)
+			fail("invalid --max-time: %v", err)
 			return 2
 		}
 		p.MaxTime = d
 	}
 
+	if *noColor {
+		errColor = false
+	}
+	stderr := termui.Palette{On: errColor}
 	var logs *slog.Logger
 	if !*quiet {
-		logs = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		termui.PrintBanner(os.Stderr, stderr, version)
+		logs = slog.New(termui.NewHandler(os.Stderr, stderr, slog.LevelInfo))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	progress := func(stage asm.Stage) {
-		if !*quiet {
-			fmt.Fprintf(os.Stderr, "==> %s\n", stage)
+		if logs != nil {
+			msg := stageMessages[stage]
+			if msg == "" {
+				msg = "Running " + string(stage)
+			}
+			logs.Info(msg + " for " + rest[0])
 		}
 	}
 
+	start := time.Now()
 	res, err := scan.Run(ctx, p, logs, progress)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "scan failed:", err)
+		fail("scan failed: %v", err)
 		return 1
+	}
+	if logs != nil {
+		logs.Info(fmt.Sprintf("Found %s in %s", summary(res), time.Since(start).Round(time.Second)))
 	}
 
 	if outFile == "" {
-		if err := output.Render(os.Stdout, res, outFormat); err != nil {
-			fmt.Fprintln(os.Stderr, "error: writing output:", err)
+		opts := output.Options{Color: !*noColor && termui.ColorFor(os.Stdout)}
+		if err := output.RenderWith(os.Stdout, res, outFormat, opts); err != nil {
+			fail("writing output: %v", err)
 			return 1
 		}
 		return 0
 	}
 	f, err := os.Create(outFile)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: cannot create output file:", err)
+		fail("cannot create output file: %v", err)
 		return 1
 	}
 	err = output.Render(f, res, outFormat)
@@ -239,11 +257,11 @@ func runScan(args []string) int {
 		err = cerr
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: writing output:", err)
+		fail("writing output: %v", err)
 		return 1
 	}
-	if !*quiet {
-		fmt.Fprintf(os.Stderr, "wrote %s output to %s\n", outFormat, outFile)
+	if logs != nil {
+		logs.Info(fmt.Sprintf("Wrote %s output to %s", outFormat, outFile))
 	}
 	return 0
 }
@@ -266,6 +284,64 @@ func resolveOutput(dest string) (format, file string, err error) {
 		return strings.ToLower(dest), "", nil
 	}
 	return "", "", fmt.Errorf("cannot determine format from --output %q; use a format name (%s) or a file with one of those extensions", dest, strings.Join(output.Formats, ", "))
+}
+
+// errColor is whether [ERR] lines on stderr are coloured.
+var errColor = termui.ColorFor(os.Stderr)
+
+// fail prints an error as an [ERR] line on stderr.
+func fail(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, "%s %s\n", termui.Label(termui.Palette{On: errColor}, slog.LevelError), fmt.Sprintf(format, a...))
+}
+
+// stageMessages describe each stage as it starts.
+var stageMessages = map[asm.Stage]string{
+	asm.StageSubdomains: "Enumerating subdomains",
+	asm.StageDNS:        "Resolving DNS records",
+	asm.StageIPDR:       "Looking up IP ownership",
+	asm.StageCloud:      "Discovering cloud services and identity providers",
+	asm.StagePorts:      "Scanning ports",
+	asm.StageWeb:        "Probing web servers",
+	asm.StageVulns:      "Looking up vulnerabilities",
+	asm.StageCerts:      "Collecting TLS certificates",
+}
+
+// summary counts what a scan found, e.g. "12 subdomains, 40 DNS records".
+func summary(r *asm.Result) string {
+	ports := 0
+	for _, ps := range r.PortScans {
+		ports += len(ps.Ports)
+	}
+	cves := 0
+	for _, sv := range r.Vulnerabilities {
+		cves += len(sv.Vulnerabilities)
+	}
+	counts := []struct {
+		n    int
+		what string
+		show bool
+	}{
+		{len(r.Subdomains), "subdomains", true},
+		{len(r.DNSRecords), "DNS records", true},
+		{len(r.ZoneTransfers), "zone transfers", len(r.ZoneTransfers) > 0},
+		{len(r.CloudAssets), "cloud assets", slices.Contains(r.Stages, asm.StageCloud)},
+		{len(r.PublicBuckets), "public buckets", slices.Contains(r.Stages, asm.StageCloudStorage)},
+		{ports, "open ports", slices.Contains(r.Stages, asm.StagePorts)},
+		{len(r.Web), "web pages", slices.Contains(r.Stages, asm.StageWeb)},
+		{cves, "CVEs", slices.Contains(r.Stages, asm.StageVulns)},
+		{len(r.TLSCerts), "certificates", slices.Contains(r.Stages, asm.StageCerts)},
+	}
+	var parts []string
+	for _, c := range counts {
+		if c.show {
+			what := c.what
+			if c.n == 1 {
+				what = strings.TrimSuffix(what, "s")
+			}
+			parts = append(parts, fmt.Sprintf("%d %s", c.n, what))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func splitComma(s string) []string {
