@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.0](https://github.com/asyncawakestudio/surface/compare/v0.2.1...v0.3.0) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* read API keys from the environment only ([#27](https://github.com/asyncawakestudio/surface/issues/27))
+* collect data only, leave analysis to downstream consumers ([#26](https://github.com/asyncawakestudio/surface/issues/26))
+* serve MCP from the surface binary (surface mcp) ([#21](https://github.com/asyncawakestudio/surface/issues/21))
+
+### Features
+
+* collect data only, leave analysis to downstream consumers ([#26](https://github.com/asyncawakestudio/surface/issues/26)) ([c92249b](https://github.com/asyncawakestudio/surface/commit/c92249bda2639571c9077ebc81992fc352b181ec))
+* discover cloud services and identity providers ([#19](https://github.com/asyncawakestudio/surface/issues/19)) ([2cd5c59](https://github.com/asyncawakestudio/surface/commit/2cd5c596b7d139282f7ed28ab74c3b70c72e7369))
+* ProjectDiscovery-style terminal output ([#28](https://github.com/asyncawakestudio/surface/issues/28)) ([6da16cc](https://github.com/asyncawakestudio/surface/commit/6da16ccf3f25b4aa0aac1aee0935700f1265713b))
+* serve MCP from the surface binary (surface mcp) ([#21](https://github.com/asyncawakestudio/surface/issues/21)) ([9f65c15](https://github.com/asyncawakestudio/surface/commit/9f65c15c401627355e84595df13de436d92a2001))
+
+
+### Bug Fixes
+
+* read API keys from the environment only ([#27](https://github.com/asyncawakestudio/surface/issues/27)) ([085007a](https://github.com/asyncawakestudio/surface/commit/085007a42a4d7f18f62eacfce2d21b4bdbdab99f))
+
+
+### Chores
+
+* **ci:** bump the minor version for features before 1.0 ([#25](https://github.com/asyncawakestudio/surface/issues/25)) ([ce98a63](https://github.com/asyncawakestudio/surface/commit/ce98a63cc7ec005c560cd80a8f453e12c364dece))
+* **ci:** bump the patch version for features before 1.0 ([#22](https://github.com/asyncawakestudio/surface/issues/22)) ([e00718c](https://github.com/asyncawakestudio/surface/commit/e00718c2f9c49e350dc3f78ec9d1329a5d277fcb))
+* **ci:** do not run tests in CD ([#17](https://github.com/asyncawakestudio/surface/issues/17)) ([7d8bf28](https://github.com/asyncawakestudio/surface/commit/7d8bf280b0cf03cc46453c7751e5f56d240d9cf1))
+* **ci:** run tests on pull requests only ([#23](https://github.com/asyncawakestudio/surface/issues/23)) ([8449d3c](https://github.com/asyncawakestudio/surface/commit/8449d3c7c5e73d0470b86873e8cc6cae3c2aca49))
+* **docs:** show release downloads ([#24](https://github.com/asyncawakestudio/surface/issues/24)) ([16a8ebe](https://github.com/asyncawakestudio/surface/commit/16a8ebeb00279e58e8594c4c8bcaee4320cb6000))
+* strip debug info from local builds ([#20](https://github.com/asyncawakestudio/surface/issues/20)) ([c87c299](https://github.com/asyncawakestudio/surface/commit/c87c2997600ec1286835195b7fac2eb72c9b67eb))
+
 ## [0.2.1](https://github.com/asyncawakestudio/surface/compare/v0.2.0...v0.2.1) (2026-11-19)
 
 
