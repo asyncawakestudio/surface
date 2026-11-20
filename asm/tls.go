@@ -80,3 +80,39 @@ func (s *Scanner) grabCerts(ctx context.Context, hosts []resolvedHost, extraPort
 	}
 	return out, nil
 }
+
+// tlsPortsByHost lists, per host, the ports beyond Options.TLSPorts where TLS
+// was seen: HTTPS pages from the web stage, and open ports where service
+// detection found TLS on one of the host's IPs.
+func tlsPortsByHost(hosts []resolvedHost, scans []PortScan, pages []WebPage) map[string][]int {
+	tlsByIP := map[string][]int{}
+	for _, ps := range scans {
+		for _, p := range ps.Ports {
+			if p.Protocol == "tcp" && p.Service != nil && p.Service.TLS {
+				tlsByIP[ps.IP] = append(tlsByIP[ps.IP], p.Port)
+			}
+		}
+	}
+	out := map[string][]int{}
+	add := func(host string, port int) {
+		if !slices.Contains(out[host], port) {
+			out[host] = append(out[host], port)
+		}
+	}
+	for _, h := range hosts {
+		for _, ip := range h.IPs {
+			for _, p := range tlsByIP[ip] {
+				add(h.Host, p)
+			}
+		}
+	}
+	for _, p := range pages {
+		if p.Scheme == "https" {
+			add(p.Host, p.Port)
+		}
+	}
+	for h := range out {
+		slices.Sort(out[h])
+	}
+	return out
+}

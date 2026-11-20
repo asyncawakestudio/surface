@@ -61,8 +61,8 @@ Usage:
   surface mcp           run as an MCP server on stdio
   surface version
 
-By default these stages run: subdomains, dns, ipdr, cloud, misconfig, web,
-certs. The port scan is opt-in (--ports) since it probes every IP the domain
+By default these stages run: subdomains, dns, ipdr, cloud, web, certs.
+The port scan is opt-in (--ports) since it probes every IP the domain
 resolves to, including hosting and CDN infrastructure you may not own.
 
 Output:
@@ -70,8 +70,8 @@ Output:
                         A file path picks the format by extension
                         (report.json, hosts.csv, out.xml, scan.txt); a bare
                         format name (json, csv, xml, txt) writes to stdout.
-  --skip <stages>       comma-separated stages to skip: ipdr, cloud,
-                        misconfig, web, certs
+  --skip <stages>       comma-separated stages to skip: ipdr, cloud, web,
+                        certs
                         (subdomains and dns are always run)
   --subdomain-brute-force
                         after subfinder, also try each label of a wordlist
@@ -117,7 +117,7 @@ func runScan(args []string) int {
 	fs.Usage = usage
 	var (
 		outDest   = fs.String("output", "", "output destination: a file path (format by extension) or a format name; empty = txt to stdout")
-		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, cloud, misconfig, web, certs")
+		skip      = fs.String("skip", "", "comma-separated stages to skip: ipdr, cloud, web, certs")
 		ports     = fs.Bool("ports", false, "also run the port scan")
 		quiet     = fs.Bool("quiet", false, "suppress progress logging on stderr")
 		ipToken   = fs.String("ipinfo-token", "", "ipinfo.io API token")

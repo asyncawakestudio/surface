@@ -4,16 +4,15 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 	"strings"
 )
 
-// ErrCloudStorageNeedsMisconfig is returned when the cloud storage check is
-// requested with the misconfig stage, which reports it, turned off.
-var ErrCloudStorageNeedsMisconfig = errors.New("the cloud storage check is part of the misconfig stage, which is skipped")
+// ErrCloudStorageNeedsCloud is returned when the cloud storage check is
+// requested with the cloud stage, which reports it, turned off.
+var ErrCloudStorageNeedsCloud = errors.New("the cloud storage check is part of the cloud stage, which is skipped")
 
 // bucketWords are combined with the domain's name to guess bucket names.
 var bucketWords = []string{
@@ -97,31 +96,20 @@ func azureAccountCandidates(domain string) []string {
 	return out
 }
 
-// publicBucket is a storage bucket or container anyone can list.
-type publicBucket struct {
-	provider string // "AWS S3", "Google Cloud Storage", "Azure Blob Storage"
-	url      string
-	objects  int // objects in the first page of the listing
-}
-
-func (b publicBucket) misconfig(domain string) Misconfiguration {
-	host := b.url
-	if i := strings.Index(host, "://"); i >= 0 {
-		host = host[i+3:]
-	}
-	host, _, _ = strings.Cut(host, "/")
-	return Misconfiguration{
-		Host: host, Check: "public_bucket", Severity: "high",
-		Detail: fmt.Sprintf("%s %s lets anyone list its contents (%d objects listed); it is named after %s but may not be yours, so check who owns it",
-			b.provider, b.url, b.objects, domain),
-		Service: b.provider,
-	}
+// PublicBucket is a storage bucket or container named after the domain that
+// anyone can list. It may belong to someone else.
+type PublicBucket struct {
+	// Provider is "AWS S3", "Google Cloud Storage" or "Azure Blob Storage".
+	Provider string `json:"provider"`
+	URL      string `json:"url"`
+	// Objects is the number of objects in the first page of the listing.
+	Objects int `json:"objects"`
 }
 
 // findPublicBuckets requests the bucket names guessed from domain on AWS S3,
 // Google Cloud Storage and Azure Blob Storage, anonymously, and returns those
 // that list their contents. Only listings are read, never objects.
-func (s *Scanner) findPublicBuckets(ctx context.Context, domain string) ([]publicBucket, error) {
+func (s *Scanner) findPublicBuckets(ctx context.Context, domain string) ([]PublicBucket, error) {
 	client := &http.Client{
 		Timeout:       s.opts.WebTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -149,13 +137,13 @@ func (s *Scanner) findPublicBuckets(ctx context.Context, domain string) ([]publi
 		probes = append(probes, probe{"AWS S3", cloudEndpoints.s3(b)}, probe{"Google Cloud Storage", cloudEndpoints.gcs(b)})
 	}
 	accounts := azureAccountCandidates(domain)
-	s.opts.Logger.Info("misconfig: checking cloud storage", "buckets", len(buckets), "azure_accounts", len(accounts))
+	s.opts.Logger.Info("cloud: checking cloud storage", "buckets", len(buckets), "azure_accounts", len(accounts))
 
-	found := make([]*publicBucket, len(probes))
+	found := make([]*PublicBucket, len(probes))
 	forEach(ctx, probes, s.opts.WebConcurrency, func(i int, p probe) {
 		if status, body, ok := get(p.url); ok && status == http.StatusOK {
 			if n, ok := countListing(body); ok {
-				found[i] = &publicBucket{provider: p.provider, url: p.url, objects: n}
+				found[i] = &PublicBucket{Provider: p.provider, URL: p.url, Objects: n}
 			}
 		}
 	})
@@ -174,11 +162,11 @@ func (s *Scanner) findPublicBuckets(ctx context.Context, domain string) ([]publi
 			}
 		}
 	}
-	azure := make([]*publicBucket, len(containers))
+	azure := make([]*PublicBucket, len(containers))
 	forEach(ctx, containers, s.opts.WebConcurrency, func(i int, p probe) {
 		if status, body, ok := get(p.url); ok && status == http.StatusOK {
 			if n, ok := countListing(body); ok {
-				azure[i] = &publicBucket{provider: p.provider, url: strings.TrimSuffix(p.url, "?restype=container&comp=list"), objects: n}
+				azure[i] = &PublicBucket{Provider: p.provider, URL: strings.TrimSuffix(p.url, "?restype=container&comp=list"), Objects: n}
 			}
 		}
 	})
@@ -186,7 +174,7 @@ func (s *Scanner) findPublicBuckets(ctx context.Context, domain string) ([]publi
 		return nil, err
 	}
 
-	var out []publicBucket
+	var out []PublicBucket
 	for _, b := range append(found, azure...) {
 		if b != nil {
 			out = append(out, *b)

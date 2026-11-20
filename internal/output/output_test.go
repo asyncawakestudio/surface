@@ -217,25 +217,17 @@ func TestRenderWeb(t *testing.T) {
 	}
 }
 
-func TestRenderMisconfigs(t *testing.T) {
+func TestRenderZoneTransfersAndBuckets(t *testing.T) {
 	r := sample()
-	r.Misconfigurations = []asm.Misconfiguration{
-		{Host: "example.com", Check: "dmarc", Severity: "medium", Detail: "no DMARC record"},
-		{Host: "example.com", Check: "zone_transfer", Severity: "high", Detail: "nameserver ns1.example.com allows zone transfers"},
-		{Host: "assets.example.com", Check: "takeover", Severity: "high", CNAME: "assets-old.s3.amazonaws.com", Service: "AWS/S3",
-			Detail: `CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: https response contains "NoSuchBucket"`},
-		{Host: "www.example.com", Port: 8443, Check: "cert_expiring", Severity: "medium", Detail: "certificate for www.example.com expires on 2026-12-01"},
-	}
+	r.ZoneTransfers = []asm.ZoneTransfer{{Nameserver: "ns1.example.com", Records: 42}}
+	r.PublicBuckets = []asm.PublicBucket{{Provider: "AWS S3", URL: "https://example-backups.s3.amazonaws.com/", Objects: 3}}
 	var b strings.Builder
 	if err := Render(&b, r, "txt"); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Misconfigurations (4)\n",
-		"  medium  dmarc            example.com  no DMARC record\n",
-		"  high    zone_transfer    example.com  nameserver ns1.example.com allows zone transfers\n",
-		"  medium  cert_expiring    www.example.com:8443  certificate for www.example.com expires on 2026-12-01\n",
-		`  high    takeover         assets.example.com  CNAME assets-old.s3.amazonaws.com (AWS/S3) looks unclaimed: https response contains "NoSuchBucket"` + "\n",
+		"Zone transfers (1)\n  ns1.example.com  42 records\n",
+		"Public buckets (1)\n  AWS S3                https://example-backups.s3.amazonaws.com/  3 objects listed\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("txt missing %q in:\n%s", want, b.String())
@@ -246,19 +238,20 @@ func TestRenderMisconfigs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"misconfig,example.com,,,dmarc,medium: no DMARC record",
-		"misconfig,www.example.com,,8443,cert_expiring,medium: certificate for www.example.com expires on 2026-12-01",
+		"zone_transfer,example.com,,,ns1.example.com,42 records",
+		"public_bucket,example-backups.s3.amazonaws.com,,,AWS S3,https://example-backups.s3.amazonaws.com/ (3 objects listed)",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("csv missing %q in:\n%s", want, b.String())
 		}
 	}
 
-	// A check that found nothing still says so.
-	r.Misconfigurations, r.Stages = nil, []asm.Stage{asm.StageMisconfig}
+	// A bucket check that found nothing still says so; no zone transfers
+	// leaves the section out.
+	r.ZoneTransfers, r.PublicBuckets, r.Stages = nil, nil, []asm.Stage{asm.StageCloud, asm.StageCloudStorage}
 	b.Reset()
 	_ = Render(&b, r, "txt")
-	if !strings.Contains(b.String(), "Misconfigurations (0)") {
+	if !strings.Contains(b.String(), "Public buckets (0)") || strings.Contains(b.String(), "Zone transfers") {
 		t.Errorf("txt:\n%s", b.String())
 	}
 }

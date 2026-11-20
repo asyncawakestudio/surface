@@ -3,6 +3,7 @@ package asm
 import (
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,7 +57,7 @@ func (s *Scanner) resolve(ctx context.Context, domain string, hosts []string) ([
 
 	// Phase 1: drop names that don't exist. NOERROR with no A record is kept,
 	// since the name may still have AAAA, MX or TXT records, and so is a
-	// dangling CNAME (NXDOMAIN at the target), a subdomain takeover candidate.
+	// dangling CNAME (NXDOMAIN at the target).
 	exists := make([]bool, len(hosts))
 	forEach(ctx, hosts, s.opts.DNSConcurrency, func(i int, host string) {
 		data, err := probe.QueryOne(host)
@@ -201,4 +202,9 @@ func forEach[T any](ctx context.Context, items []T, n int, fn func(int, T)) {
 		}()
 	}
 	wg.Wait()
+}
+
+// normalizeName lowercases a DNS name and drops its trailing dot.
+func normalizeName(name string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
 }

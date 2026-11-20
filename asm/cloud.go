@@ -347,12 +347,18 @@ type CloudDiff struct {
 	Assets   SetDiff[CloudAsset] `json:"assets"`
 	// TenantDomains are domains added to or removed from the Entra tenant.
 	TenantDomains SetDiff[string] `json:"tenant_domains"`
+	// PublicBuckets are compared only when both scans checked cloud storage.
+	PublicBuckets SetDiff[PublicBucket] `json:"public_buckets"`
 }
 
 func compareCloud(prev, cur *Result) CloudDiff {
 	d := CloudDiff{
 		Assets:        SetDiff[CloudAsset]{Added: []CloudAsset{}, Removed: []CloudAsset{}},
 		TenantDomains: SetDiff[string]{Added: []string{}, Removed: []string{}},
+		PublicBuckets: SetDiff[PublicBucket]{Added: []PublicBucket{}, Removed: []PublicBucket{}},
+	}
+	if prev.ran(StageCloudStorage) && cur.ran(StageCloudStorage) {
+		d.PublicBuckets = setDiff(prev.PublicBuckets, cur.PublicBuckets, func(b PublicBucket) string { return b.URL })
 	}
 	if !prev.ran(StageCloud) || !cur.ran(StageCloud) {
 		return d
