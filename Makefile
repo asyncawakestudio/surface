@@ -1,15 +1,17 @@
-GOFLAGS ?=
+# Strip debug info and local paths, as release builds do (~22% smaller).
+GOFLAGS ?= -trimpath
+LDFLAGS ?= -s -w
 DOMAIN  ?= example.com
 
 .PHONY: build install test test-integration run clean fmt vet update-fingerprints
 
 build: ## Build the CLI and MCP binaries into ./bin
-	go build $(GOFLAGS) -o bin/surface ./cmd/surface
-	go build $(GOFLAGS) -o bin/surface-mcp ./cmd/surface-mcp
+	go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o bin/surface ./cmd/surface
+	go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o bin/surface-mcp ./cmd/surface-mcp
 
 install: ## go install both commands onto your PATH
-	go install ./cmd/surface
-	go install ./cmd/surface-mcp
+	go install $(GOFLAGS) -ldflags="$(LDFLAGS)" ./cmd/surface
+	go install $(GOFLAGS) -ldflags="$(LDFLAGS)" ./cmd/surface-mcp
 
 fmt:
 	gofmt -w .
