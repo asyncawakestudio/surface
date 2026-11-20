@@ -1,5 +1,7 @@
 # surface
 
+[![Downloads](https://img.shields.io/github/downloads/asyncawakestudio/surface/total)](https://github.com/asyncawakestudio/surface/releases)
+
 How exposed are you?
 
 > Only scan domains you own or are authorized to test. See
