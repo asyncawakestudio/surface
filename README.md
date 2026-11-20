@@ -9,13 +9,12 @@ How exposed are you?
 
 ## Install
 
-Download `surface` and `surface-mcp` for your platform from
+Download `surface` for your platform from
 [Releases](https://github.com/asyncawakestudio/surface/releases), or build
 from source (Go 1.27.3+; older Go versions download it automatically):
 
 ```sh
 go install github.com/asyncawakestudio/surface/cmd/surface@latest
-go install github.com/asyncawakestudio/surface/cmd/surface-mcp@latest
 ```
 
 ## CLI
@@ -26,6 +25,7 @@ surface — attack surface discovery
 
 Usage:
   surface [flags] <domain>
+  surface mcp           run as an MCP server on stdio
   surface version
 
 By default these stages run: subdomains, dns, ipdr, cloud, misconfig, web,
@@ -208,13 +208,13 @@ version, known-exploited first.
 
 ## MCP
 
-`surface-mcp` speaks the Model Context Protocol over stdio (newline-delimited
-JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at the binary:
+`surface mcp` speaks the Model Context Protocol over stdio (newline-delimited
+JSON-RPC 2.0), exposing one tool, `scan`. Point an MCP client at it:
 
 ```json
 {
   "mcpServers": {
-    "surface": { "command": "/path/to/surface-mcp" }
+    "surface": { "command": "/path/to/surface", "args": ["mcp"] }
   }
 }
 ```
@@ -228,7 +228,7 @@ concurrently and stop on `notifications/cancelled`. Quick manual check:
 printf '%s\n%s\n%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | ./bin/surface-mcp
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | ./bin/surface mcp
 ```
 
 ## API
@@ -258,8 +258,8 @@ CVEs are only compared when both scans looked for them (`Result.Stages`).
 
 | Target | Does |
 |--------|------|
-| `make build` | build `bin/surface` and `bin/surface-mcp` |
-| `make install` | `go install` both commands |
+| `make build` | build `bin/surface` (CLI and MCP server) |
+| `make install` | `go install` surface |
 | `make test` | `go vet` + unit tests (race) |
 | `make test-integration` | live tests (network): `go test -tags integration ./asm` |
 | `make run DOMAIN=example.com` | build + scan a domain |

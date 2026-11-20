@@ -1,12 +1,12 @@
-// Command surface-mcp exposes the core discovery service to AI clients over
-// the Model Context Protocol (MCP) on stdio. It speaks newline-delimited
-// JSON-RPC 2.0 — the MCP stdio transport — with no external dependencies.
+// Package mcp exposes the core discovery service to AI clients over the Model
+// Context Protocol (MCP) on stdio, as `surface mcp`. It speaks
+// newline-delimited JSON-RPC 2.0 — the MCP stdio transport — with no external
+// dependencies.
 //
 // Tool: scan(domain, ...) runs the discovery pipeline and returns the result
 // as JSON text. Scans run concurrently and can be cancelled with
-// notifications/cancelled. Configure an MCP client to launch this binary over
-// stdio.
-package main
+// notifications/cancelled.
+package mcp
 
 import (
 	"bufio"
@@ -25,18 +25,18 @@ const (
 	serverName      = "surface"
 )
 
-// serverVersion is set at release time via -ldflags "-X main.serverVersion=...".
-var serverVersion = "dev"
-
-func main() {
-	// Protocol traffic is on stdout; everything else must go to stderr.
+// Serve answers MCP requests from in on out until in ends, then waits for
+// running scans to stop. version is reported to clients as the server's
+// version. Logs go to stderr, since out carries the protocol.
+func Serve(in io.Reader, out io.Writer, version string) error {
 	log.SetOutput(os.Stderr)
-	log.SetPrefix("surface-mcp: ")
+	log.SetPrefix("surface mcp: ")
 
-	srv := &server{out: bufio.NewWriter(os.Stdout)}
-	if err := srv.serve(os.Stdin); err != nil && err != io.EOF {
-		log.Fatal(err)
+	srv := &server{out: bufio.NewWriter(out), version: version}
+	if err := srv.serve(in); err != nil && err != io.EOF {
+		return err
 	}
+	return nil
 }
 
 // --- JSON-RPC 2.0 framing ---
@@ -69,6 +69,8 @@ const (
 )
 
 type server struct {
+	version string
+
 	outMu sync.Mutex // guards out: tool calls reply from their own goroutines
 	out   *bufio.Writer
 
@@ -111,7 +113,7 @@ func (s *server) handle(req *request) {
 		s.reply(req, map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
+			"serverInfo":      map[string]any{"name": serverName, "version": s.version},
 		})
 	case "notifications/initialized":
 		// notification: no reply

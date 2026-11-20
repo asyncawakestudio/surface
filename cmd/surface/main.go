@@ -6,8 +6,9 @@
 //	surface --ports --services example.com
 //	surface --ports --services --vulns example.com
 //	surface --vulns example.com         # CVEs for web technologies only
+//	surface mcp                         # MCP server on stdio
 //
-// It runs the same engine the MCP server and the cloud product use.
+// It runs the same engine as the cloud product.
 package main
 
 import (
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/asyncawakestudio/surface/asm"
+	"github.com/asyncawakestudio/surface/internal/mcp"
 	"github.com/asyncawakestudio/surface/internal/output"
 	"github.com/asyncawakestudio/surface/internal/scan"
 )
@@ -38,6 +40,11 @@ func main() {
 		fmt.Println("surface", version)
 	case "help", "-h", "--help":
 		usage()
+	case "mcp":
+		if err := mcp.Serve(os.Stdin, os.Stdout, version); err != nil {
+			fmt.Fprintln(os.Stderr, "surface mcp:", err)
+			os.Exit(1)
+		}
 	default:
 		// Everything else is a scan: `surface [flags] <domain>`.
 		os.Exit(runScan(os.Args[1:]))
@@ -51,6 +58,7 @@ func usage() {
 
 Usage:
   surface [flags] <domain>
+  surface mcp           run as an MCP server on stdio
   surface version
 
 By default these stages run: subdomains, dns, ipdr, cloud, misconfig, web,

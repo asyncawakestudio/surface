@@ -18,19 +18,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
-  - id: surface-mcp
-    main: ./cmd/surface-mcp
-    binary: surface-mcp
-    env: [CGO_ENABLED=0]
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags:
-      - -s -w -X main.serverVersion={{ .Version }}
-
 archives:
   - id: default
-    ids: [surface, surface-mcp]
+    ids: [surface]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
